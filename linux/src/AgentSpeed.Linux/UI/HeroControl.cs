@@ -66,6 +66,9 @@ internal sealed class HeroControl : Control
         };
     }
     internal bool AnimationTimerEnabled => _timer.IsEnabled;
+    internal string AnimationTimerStatus =>
+        $"enabled={_timer.IsEnabled}, attached={_attached}, rootPresent={_visibilityRoot is not null}, " +
+        $"rootVisible={_rootVisible}, controlVisible={IsVisible}";
 
     private void UpdateTimer()
     {
@@ -77,7 +80,8 @@ internal sealed class HeroControl : Control
     private void AttachVisibilityRoot()
     {
         DetachVisibilityRoot();
-        if (VisualRoot is not TopLevel root) return;
+        var root = TopLevel.GetTopLevel(this);
+        if (root is null) return;
         _visibilityRoot = root;
         _rootVisible = root.IsVisible;
         root.PropertyChanged += OnRootPropertyChanged;

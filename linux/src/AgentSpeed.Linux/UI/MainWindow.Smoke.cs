@@ -139,23 +139,23 @@ internal sealed partial class MainWindow
     private async Task AssertHeroTimerStopsWhenHiddenAsync()
     {
         if (!_hero.AnimationTimerEnabled)
-            throw new InvalidOperationException("The visible dashboard hero animation timer is not running.");
+            throw new InvalidOperationException($"The visible dashboard hero animation timer is not running ({_hero.AnimationTimerStatus}).");
         SelectPage("history");
         await Task.Delay(80);
         if (_hero.AnimationTimerEnabled)
-            throw new InvalidOperationException("Leaving the dashboard kept its detached hero animation timer running.");
+            throw new InvalidOperationException($"Leaving the dashboard kept its detached hero animation timer running ({_hero.AnimationTimerStatus}).");
         SelectPage("dashboard");
         await Task.Delay(80);
         if (!_hero.AnimationTimerEnabled)
-            throw new InvalidOperationException("Returning to the dashboard did not restart its hero animation timer.");
+            throw new InvalidOperationException($"Returning to the dashboard did not restart its hero animation timer ({_hero.AnimationTimerStatus}).");
         Hide();
         await Task.Delay(80);
         if (_hero.AnimationTimerEnabled)
-            throw new InvalidOperationException("The hidden window kept the dashboard hero animation timer running.");
+            throw new InvalidOperationException($"The hidden window kept the dashboard hero animation timer running ({_hero.AnimationTimerStatus}).");
         Show();
         await Task.Delay(80);
         if (!_hero.AnimationTimerEnabled)
-            throw new InvalidOperationException("The dashboard hero animation timer did not resume when the window became visible.");
+            throw new InvalidOperationException($"The dashboard hero animation timer did not resume when the window became visible ({_hero.AnimationTimerStatus}).");
     }
 
     private void PublishSourceGroupingData(bool produced)
