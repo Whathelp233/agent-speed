@@ -115,13 +115,13 @@ internal sealed class OrbWindow : Window
         var scale = screen.Scaling; var work = screen.WorkingArea;
         var radius = Definition.Size * scale / 2;
         var center = new PointD(Position.X + Width * scale / 2, Position.Y + Definition.Size * .75 * scale);
-        var record = OrbPositionRecord.FromCenter(Key(screen), center, radius, new(work.X, work.Y, work.Width, work.Height), scale);
+        var record = OrbPositionRecord.FromCenter(LinuxOrbLayout.Key(screen), center, radius, new(work.X, work.Y, work.Width, work.Height), scale);
         var snapped = record.ToCenter(new(work.X, work.Y, work.Width, work.Height), scale, radius);
         _restoring = true;
         Position = PositionFor(snapped, screen);
         _restoring = false;
         center = new PointD(Position.X + Width * scale / 2, Position.Y + Definition.Size * .75 * scale);
-        record = OrbPositionRecord.FromCenter(Key(screen), center, radius, new(work.X, work.Y, work.Width, work.Height), scale);
+        record = OrbPositionRecord.FromCenter(LinuxOrbLayout.Key(screen), center, radius, new(work.X, work.Y, work.Width, work.Height), scale);
         _app.Settings.Update(s => s with { Orbs = s.Orbs.WithPosition(_arrangement, Definition.Id, record) });
     }
     private PixelPoint PositionFor(PointD center, Screen screen)
