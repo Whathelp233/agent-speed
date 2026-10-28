@@ -80,6 +80,7 @@ jobs:
       - name: Verify Linux build
         run: |
           node --test linux/tests/test_gnome_extension.mjs
+          python3 linux/tests/test_traffic_helper_clock.py
           python3 linux/scripts/sync-shaders.py --check
           dotnet test shared/tests/AgentSpeed.Core.Tests -c Release
           dotnet test shared/tests/AgentSpeed.Presentation.Tests -c Release

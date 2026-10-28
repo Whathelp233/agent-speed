@@ -127,6 +127,8 @@ jobs:
         run: node --test linux/tests/test_gnome_extension.mjs
       - name: Test Linux installer boundaries
         run: python3 linux/tests/test_installer.py
+      - name: Test helper idle clock
+        run: python3 linux/tests/test_traffic_helper_clock.py
       - name: Build Debian package
         run: sh linux/scripts/publish.sh
       - uses: actions/upload-artifact@v7

@@ -13,6 +13,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include "idle_clock.h"
 #include "traffic.skel.h"
 
 struct identity { uint32_t uid, pid; uint64_t start_ticks; };
@@ -64,15 +65,22 @@ int main(void)
         fputs("Cannot attach network accounting probes; kernel permissions, BTF and tracing support are required.\n", stderr);
         traffic_bpf__destroy(bpf); return 1;
     }
-    struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+    struct timespec now;
+    if (traffic_helper_boottime(&now) != 0) {
+        perror("clock_gettime(CLOCK_BOOTTIME)");
+        traffic_bpf__destroy(bpf); return 1;
+    }
     uint64_t epoch = (uint64_t)now.tv_sec * 1000000000ULL + now.tv_nsec;
-    time_t last = time(NULL);
-    while (!stopping && time(NULL) - last < 120) {
+    uint64_t last = (uint64_t)now.tv_sec;
+    while (!stopping) {
+        uint64_t current;
+        if (traffic_helper_boottime_seconds(&current) != 0 || traffic_helper_idle_expired(last, current)) break;
         struct pollfd socket = { .fd = 3, .events = POLLIN };
         if (poll(&socket, 1, 1000) <= 0) continue;
         int client = accept4(3, NULL, NULL, SOCK_CLOEXEC); if (client < 0) continue;
         serve(client, bpf_map__fd(bpf->maps.totals), boot, ticks, epoch);
-        close(client); last = time(NULL);
+        close(client);
+        if (traffic_helper_boottime_seconds(&last) != 0) break;
         // Bound scanning work even if a local client polls faster than the application.
         struct timespec pause = { .tv_nsec = 50000000 }; nanosleep(&pause, NULL);
     }
