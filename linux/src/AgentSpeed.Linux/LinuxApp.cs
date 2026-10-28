@@ -34,6 +34,7 @@ internal sealed class LinuxApp : Application
     private DateTimeOffset _nextUpdateCheck;
     private readonly Dictionary<string, OrbWindow> _orbs = [];
     private readonly LinuxOrbSyncGate _orbSyncGate = new();
+    private bool _disposing;
     public readonly Stopwatch Clock = Stopwatch.StartNew();
     public SettingsService Settings { get; private set; } = null!;
     internal LinuxAccessibilityState Accessibility { get; private set; } = null!;
@@ -135,6 +136,7 @@ internal sealed class LinuxApp : Application
             SyncOrbs(); Changed?.Invoke();
         };
         Main = new MainWindow(this); desktop.MainWindow = Main;
+        Main.Screens.Changed += ScreensChanged;
         ApplyAppearance();
         if (desktop.Args?.Contains("--background") != true) Main.Show();
         CreateTray(); SyncOrbs();
@@ -197,6 +199,15 @@ internal sealed class LinuxApp : Application
                     orb.SavePreview(Path.Combine(LinuxPaths.Cache, $"smoke-{orb.Definition.Style}.png"));
                     orb.SavePreview(Path.Combine(LinuxPaths.Cache, $"smoke-{orb.Definition.Style}-cpu.png"), software: true);
                 }
+                var closedId = first.Definition.Id;
+                first.Close(); // Exercise the same user-window close path used by the desktop window manager.
+                if (_orbs.ContainsKey(closedId) || Settings.Current.Orbs.Find(closedId) is not { Visible: false })
+                    throw new InvalidOperationException("Closing an orb left a stale window or a visible setting.");
+                if (Settings.Current.Orbs.Layouts.All(layout => !layout.Positions.ContainsKey(closedId)))
+                    throw new InvalidOperationException("Closing an orb did not persist its final position.");
+                SyncOrbs();
+                if (_orbs.ContainsKey(closedId))
+                    throw new InvalidOperationException("SyncOrbs retained a closed orb window.");
             }
             catch (Exception ex) { Console.Error.WriteLine($"UI smoke test failed: {ex}"); Environment.ExitCode = 1; }
             finally { Quit(); }
@@ -204,6 +215,7 @@ internal sealed class LinuxApp : Application
     }
     public void SyncOrbs(bool repositionExisting = false)
     {
+        if (Quitting || _disposing) return;
         _orbSyncGate.Run(repositionExisting, () =>
         {
             var repeat = false;
@@ -226,7 +238,7 @@ internal sealed class LinuxApp : Application
                 foreach (var (id, window) in _orbs.ToArray())
                     if (!settings.ShowOrbs || document.Find(id) is not { Visible: true })
                     {
-                        LinuxOrbPositionLifecycle.Close(document.Find(id) is not null, window.FlushPosition, window.Close,
+                        LinuxOrbPositionLifecycle.Close(document.Find(id) is not null, window.FlushPosition, window.CloseFromApplication,
                             () => _orbs.Remove(id));
                     }
                 if (settings.ShowOrbs)
@@ -335,11 +347,38 @@ internal sealed class LinuxApp : Application
     {
         foreach (var orb in _orbs.Values.ToArray()) orb.FlushPosition();
     }
+    private void ScreensChanged(object? sender, EventArgs e)
+    {
+        if (Quitting || _disposing) return;
+        SyncOrbs(repositionExisting: true);
+        foreach (var orb in _orbs.Values.ToArray()) orb.RefreshInputShape();
+    }
+    internal bool IsOrbWindowRegistered(OrbWindow window) =>
+        _orbs.TryGetValue(window.Definition.Id, out var current) && ReferenceEquals(current, window);
+
+    internal void OrbWindowClosed(OrbWindow window)
+    {
+        var id = window.Definition.Id;
+        if (!_orbs.TryGetValue(id, out var current) || !ReferenceEquals(current, window)) return;
+        _orbs.Remove(id);
+        if (Quitting || _disposing || !Settings.Current.ShowOrbs
+            || Settings.Current.Orbs.Find(id) is not { Visible: true }) return;
+
+        Settings.Update(s => s.Orbs.Find(id) is { Visible: true } orb
+            ? s with { Orbs = s.Orbs.Replace(orb with { Visible = false }) }
+            : s);
+    }
+
     public void Restart() { _restart = true; Quit(); }
     private void DisposeServices()
     {
+        if (_disposing) return;
+        _disposing = true;
+        Quitting = true;
+        if (Main is not null) Main.Screens.Changed -= ScreensChanged;
         _previewTimer?.Stop(); _maintenance.Stop(); _power?.Dispose();
-        foreach (var orb in _orbs.Values) orb.Close();
+        FlushOrbPositions(); Settings.Flush();
+        foreach (var orb in _orbs.Values.ToArray()) orb.CloseFromApplication();
         _bridge?.Dispose(); _tray?.Dispose();
         Updater.Dispose(); Report.Dispose(); Monitor.Dispose(); HistoryService.Dispose(); Traffic.Dispose(); Cost.Dispose(); Settings.Dispose(); _instance?.Dispose();
     }

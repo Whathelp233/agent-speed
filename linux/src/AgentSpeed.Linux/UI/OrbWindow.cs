@@ -29,6 +29,7 @@ internal sealed class OrbWindow : Window
     private readonly EventHandler _scalingChanged;
     private bool _restoring;
     private bool _opened;
+    private bool _closingFromApplication;
     private string _arrangement = "";
     public OrbDefinition Definition { get; private set; }
     internal OrbAppearance Appearance => _canvas.Appearance;
@@ -71,14 +72,17 @@ internal sealed class OrbWindow : Window
                 if (!IsVisible) return;
                 app.SyncOrbs(repositionExisting: true); _opened = true;
             }, TimeSpan.FromMilliseconds(250));
-            UpdateInputShape(); _canvas.Start();
+            RefreshInputShape(); _canvas.Start();
         };
         PositionChanged += (_, _) => { if (!_restoring && _opened) { _save.Stop(); _save.Start(); } };
-        Screens.Changed += ScreensChanged;
         _save.Tick += (_, _) => { _save.Stop(); SavePosition(); };
-        Closed += (_, _) => { _save.Stop(); Screens.Changed -= ScreensChanged; ScalingChanged -= _scalingChanged; _canvas.Dispose(); };
+        Closing += (_, _) => { if (!_closingFromApplication && _app.IsOrbWindowRegistered(this)) FlushPosition(); };
+        Closed += (_, _) =>
+        {
+            _save.Stop(); ScalingChanged -= _scalingChanged; _canvas.Dispose(); _app.OrbWindowClosed(this);
+        };
         Configure(definition);
-        _scalingChanged = (_, _) => UpdateInputShape();
+        _scalingChanged = (_, _) => RefreshInputShape();
         ScalingChanged += _scalingChanged;
     }
     internal bool Configure(OrbDefinition definition)
@@ -92,16 +96,11 @@ internal sealed class OrbWindow : Window
         if (_name.Parent is Control plate) plate.IsVisible = definition.ShowName ?? (_app.Settings.Current.OrbNames == OrbNamesMode.Always
             || _app.Settings.Current.OrbNames == OrbNamesMode.Auto && (_app.Settings.Current.Orbs.Orbs.Count(o => o.Visible) > 1 || !definition.Sources.IsAll));
         _canvas.Configure(definition);
-        if (_opened) UpdateInputShape();
+        if (_opened) RefreshInputShape();
         return resize;
     }
-    private void UpdateInputShape() => X11Windows.SetClickThrough(this, Definition.ClickThrough, Definition.Size,
+    internal void RefreshInputShape() => X11Windows.SetClickThrough(this, Definition.ClickThrough, Definition.Size,
         _name.Parent is Control { IsVisible: true });
-    private void ScreensChanged(object? sender, EventArgs e)
-    {
-        _app.SyncOrbs(repositionExisting: true);
-        UpdateInputShape();
-    }
     internal void PlaceAt(OrbLocation location, Screen screen, string arrangement)
     {
         _arrangement = arrangement;
@@ -118,8 +117,8 @@ internal sealed class OrbWindow : Window
         var record = OrbPositionRecord.FromCenter(LinuxOrbLayout.Key(screen), center, radius, new(work.X, work.Y, work.Width, work.Height), scale);
         var snapped = record.ToCenter(new(work.X, work.Y, work.Width, work.Height), scale, radius);
         _restoring = true;
-        Position = PositionFor(snapped, screen);
-        _restoring = false;
+        try { Position = PositionFor(snapped, screen); }
+        finally { _restoring = false; }
         center = new PointD(Position.X + Width * scale / 2, Position.Y + Definition.Size * .75 * scale);
         record = OrbPositionRecord.FromCenter(LinuxOrbLayout.Key(screen), center, radius, new(work.X, work.Y, work.Width, work.Height), scale);
         _app.Settings.Update(s => s with { Orbs = s.Orbs.WithPosition(_arrangement, Definition.Id, record) });
@@ -132,6 +131,12 @@ internal sealed class OrbWindow : Window
     }
     public void SavePreview(string path, bool software = false) => _canvas.SavePreview(path, software);
     public void FlushPosition() { _save.Stop(); if (_opened) SavePosition(); }
+    internal void CloseFromApplication()
+    {
+        if (_closingFromApplication) return;
+        _closingFromApplication = true;
+        Close();
+    }
 }
 
 internal sealed class OrbControl : Control, IDisposable
