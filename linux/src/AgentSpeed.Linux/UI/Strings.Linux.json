@@ -982,5 +982,11 @@
     "zh-Hans": "无法导出 CSV，请选择可写入的文件后重试。",
     "zh-Hant": "無法匯出 CSV，請選擇可寫入的檔案後重試。",
     "ja": "CSV を書き出せません。書き込み可能なファイルを選び直してください。"
+  },
+  "Unable to change start at login. Check your configuration folder permissions.": {
+    "en": "Unable to change start at login. Check your configuration folder permissions.",
+    "zh-Hans": "无法更改登录时启动设置，请检查配置目录权限。",
+    "zh-Hant": "無法變更登入時啟動設定，請檢查設定目錄權限。",
+    "ja": "ログイン時起動を変更できません。設定フォルダーの権限を確認してください。"
   }
 }

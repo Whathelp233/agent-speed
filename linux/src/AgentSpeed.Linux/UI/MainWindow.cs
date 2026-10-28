@@ -634,7 +634,7 @@ internal sealed partial class MainWindow : Window
             Toggle(L("settings.effects.pulses"), s.ResponsePulses, v => _app.Settings.Update(x => x with { ResponsePulses = v })),
             Pick(T("Top bar network display"), Enum.GetValues<BarTraffic>(), s.Traffic.Bar,
                 v => _app.Settings.Update(x => x with { Traffic = x.Traffic with { Bar = v } })),
-            Toggle(T("Start at login"), LinuxStartup.Enabled, v => LinuxStartup.Set(v)),
+            StartupToggle(),
             Button(T("Restore all mouse input"), () => _app.Activate("restore-input")),
             Button(T("Enable GNOME top bar"), async () =>
             {
@@ -650,6 +650,27 @@ internal sealed partial class MainWindow : Window
                 }
                 catch (System.ComponentModel.Win32Exception) { _notice.Text = T("GNOME Extensions is unavailable."); }
             }));
+    }
+
+    private CheckBox StartupToggle(Action<bool>? apply = null)
+    {
+        apply ??= LinuxStartup.Set;
+        var box = new CheckBox { Content = T("Start at login"), IsChecked = LinuxStartup.Enabled };
+        var restoring = false;
+        box.IsCheckedChanged += (_, _) =>
+        {
+            if (restoring) return;
+            var enabled = box.IsChecked == true;
+            try { apply(enabled); _notice.Text = ""; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                restoring = true;
+                try { box.IsChecked = !enabled; }
+                finally { restoring = false; }
+                _notice.Text = T("Unable to change start at login. Check your configuration folder permissions.");
+            }
+        };
+        return box;
     }
 
     private Control Sources()

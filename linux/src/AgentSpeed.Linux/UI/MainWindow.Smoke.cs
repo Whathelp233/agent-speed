@@ -630,6 +630,13 @@ internal sealed partial class MainWindow
         if (DataValidationErrors.GetHasErrors(numeric) || commits != 1)
             throw new InvalidOperationException("Restoring the saved numeric value retained a stale validation error.");
         await AssertRedlineSettingsAsync();
+        var startupAttempts = 0;
+        var startup = StartupToggle(_ => { startupAttempts++; throw new UnauthorizedAccessException("Synthetic autostart denial"); });
+        var initialStartup = startup.IsChecked;
+        startup.IsChecked = initialStartup != true;
+        if (startup.IsChecked != initialStartup || startupAttempts != 1 || string.IsNullOrEmpty(_notice.Text))
+            throw new InvalidOperationException("An autostart write failure did not restore its toggle and show an error.");
+        _notice.Text = "";
         AssertSourceFolderValidation();
         AssertSharedSourceFolderEditor();
 
