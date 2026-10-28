@@ -334,21 +334,38 @@ internal sealed partial class MainWindow
         { _historyRows.Children.Clear(); foreach (var row in ordered) _historyRows.Children.Add(row); }
     }
     private async Task Export(bool modes)
+        => await ExportToAsync(modes, async () =>
+        {
+            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                SuggestedFileName = modes ? "agent-speed-modes.csv" : "agent-speed-history.csv",
+                FileTypeChoices = [new("CSV") { Patterns = ["*.csv"] }],
+            });
+            return file is null ? null : await file.OpenWriteAsync();
+        });
+
+    private async Task ExportToAsync(bool modes, Func<Task<Stream?>> open)
     {
         RefreshHistory();
         if (!_historyRangeValid) return;
-        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            SuggestedFileName = modes ? "agent-speed-modes.csv" : "agent-speed-history.csv",
-            FileTypeChoices = [new("CSV") { Patterns = ["*.csv"] }],
-        });
-        if (file is null) return;
-        await using var output = await file.OpenWriteAsync();
-        output.SetLength(0);
+        // Capture the chosen range, filter and currency before the asynchronous file picker.
         var text = modes
             ? ExecutionModeCsv.Build(_days)
             : HistoryCsv.Build(_days, _selectedSource, new HistoryMoney(_app.Cost.Display), _app.Traffic.Hub.Since is not null);
-        await output.WriteAsync(Encoding.UTF8.GetBytes(text));
+        try
+        {
+            await using var output = await open();
+            if (output is null) return;
+            output.SetLength(0);
+            await output.WriteAsync(Encoding.UTF8.GetBytes(text));
+            _notice.Text = "";
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            AgentSpeed.App.AppLog.Warn("History export failed: " + ex.Message);
+            _notice.Text = T("Unable to export CSV. Choose a writable file and try again.");
+        }
     }
 
 }

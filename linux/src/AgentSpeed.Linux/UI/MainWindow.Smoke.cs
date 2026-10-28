@@ -282,6 +282,33 @@ internal sealed partial class MainWindow
         await Task.Delay(60);
     }
 
+    private async Task AssertHistoryExportAsync()
+    {
+        var originalSource = _historySource.SelectedIndex;
+        _historySource.SelectedIndex = 1;
+        RefreshHistory();
+        var expected = HistoryCsv.Build(_days, _selectedSource, new HistoryMoney(_app.Cost.Display),
+            _app.Traffic.Hub.Since is not null);
+        var output = new MemoryStream();
+        await ExportToAsync(false, async () =>
+        {
+            // A filter can change while the native save picker is open.
+            _historySource.SelectedIndex = 0;
+            await Task.Yield();
+            return output;
+        });
+        if (System.Text.Encoding.UTF8.GetString(output.ToArray()) != expected)
+            throw new InvalidOperationException("CSV export did not retain the filter selected when saving began.");
+        await ExportToAsync(false, () => Task.FromException<Stream?>(new UnauthorizedAccessException("Synthetic file denial")));
+        if (_notice.Text != T("Unable to export CSV. Choose a writable file and try again."))
+            throw new InvalidOperationException("A CSV file error was not reported.");
+        await ExportToAsync(false, () => Task.FromResult<Stream?>(new MemoryStream([], writable: false)));
+        if (string.IsNullOrEmpty(_notice.Text)) throw new InvalidOperationException("A read-only CSV target was accepted.");
+        await ExportToAsync(false, () => Task.FromResult<Stream?>(new MemoryStream()));
+        if (!string.IsNullOrEmpty(_notice.Text)) throw new InvalidOperationException("A successful CSV retry retained its error.");
+        _historySource.SelectedIndex = originalSource;
+    }
+
     private async Task AssertRedlineSettingsAsync()
     {
         var original = _app.Settings.Current;
@@ -470,6 +497,7 @@ internal sealed partial class MainWindow
             throw new InvalidOperationException("The history chart and the day list disagree.");
         AssertHistoryChartMetrics();
         await AssertHistoryRecoveryAsync();
+        await AssertHistoryExportAsync();
         var day = _dayRows.First();
         day.Value.IsExpanded = true;
         RefreshHistory();

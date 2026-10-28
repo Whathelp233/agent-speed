@@ -976,5 +976,11 @@
     "zh-Hant": "無法載入歷史紀錄，請按重新整理以重試。",
     "zh-Hans": "无法加载历史记录，请点击刷新重试。",
     "ja": "履歴を読み込めませんでした。更新ボタンで再試行してください。"
+  },
+  "Unable to export CSV. Choose a writable file and try again.": {
+    "en": "Unable to export CSV. Choose a writable file and try again.",
+    "zh-Hans": "无法导出 CSV，请选择可写入的文件后重试。",
+    "zh-Hant": "無法匯出 CSV，請選擇可寫入的檔案後重試。",
+    "ja": "CSV を書き出せません。書き込み可能なファイルを選び直してください。"
   }
 }
