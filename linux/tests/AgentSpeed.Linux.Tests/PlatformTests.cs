@@ -31,7 +31,7 @@ public sealed class PlatformTests
         };
 
         var result = LinuxOrbLayout.PlaceNew(document, [display], centers, "new", "existing");
-        var existing = result.Locations["existing"];
+        var existing = new OrbLocation(display.Key, centers["existing"], document.Find("existing")!.RadiusPx(display.Scale));
         var added = result.Locations["new"];
 
         Assert.True(OrbGeometry.Distance(existing.Center, added.Center)
