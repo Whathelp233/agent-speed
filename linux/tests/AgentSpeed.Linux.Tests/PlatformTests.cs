@@ -110,6 +110,18 @@ public sealed class PlatformTests
         Assert.Equal(["positions", "traffic", "settings"], actions);
     }
 
+    [Fact]
+    public void OrbInputShapeUsesTheCurrentScaleForItsDiscAndNamePlate()
+    {
+        var oneX = X11Windows.BuildOrbInputRegion(148, 1, namePlate: true);
+        var twoX = X11Windows.BuildOrbInputRegion(148, 2, namePlate: true);
+
+        Assert.Contains(oneX, rectangle => rectangle.X == 37 && rectangle.Y == 111 && rectangle.Width == 148);
+        Assert.Contains(twoX, rectangle => rectangle.X == 74 && rectangle.Y == 222 && rectangle.Width == 296);
+        Assert.Contains(oneX, rectangle => rectangle.Y == 222 && rectangle.Height == 30);
+        Assert.Contains(twoX, rectangle => rectangle.Y == 444 && rectangle.Height == 60);
+    }
+
     [Theory]
     [InlineData("'prefer-dark'", "'Yaru'", true)]
     [InlineData("'prefer-light'", "'Yaru-dark'", false)]

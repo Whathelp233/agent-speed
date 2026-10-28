@@ -43,25 +43,30 @@ internal static partial class X11Windows
             else if (discSize is { } size)
             {
                 // Transparent glow and an absent name plate must not intercept clicks.
-                var radius = size * window.RenderScaling / 2;
-                var center = radius * 1.5;
-                var rectangles = new List<XRectangle>();
-                for (var y = (int)Math.Ceiling(center - radius); y < center + radius; y++)
-                {
-                    var half = Math.Sqrt(Math.Max(0, radius * radius - Math.Pow(y + .5 - center, 2)));
-                    var left = (int)Math.Floor(center - half); var right = (int)Math.Ceiling(center + half);
-                    if (right > left) rectangles.Add(new((short)left, (short)y, (ushort)(right - left), 1));
-                }
-                if (namePlate) rectangles.Add(new(0, (short)Math.Ceiling(center * 2), (ushort)Math.Ceiling(center * 2), (ushort)Math.Ceiling(30 * window.RenderScaling)));
-                var array = rectangles.ToArray();
+                var array = BuildOrbInputRegion(size, window.RenderScaling, namePlate);
                 fixed (XRectangle* data = array) XShapeCombineRectangles(display, handle.Handle, 2, 0, 0, (IntPtr)data, array.Length, 0, 0);
             }
             XFlush(display);
         }
         finally { XCloseDisplay(display); }
     }
+    internal static XRectangle[] BuildOrbInputRegion(double size, double scale, bool namePlate)
+    {
+        var radius = size * scale / 2;
+        var center = radius * 1.5;
+        var rectangles = new List<XRectangle>();
+        for (var y = (int)Math.Ceiling(center - radius); y < center + radius; y++)
+        {
+            var half = Math.Sqrt(Math.Max(0, radius * radius - Math.Pow(y + .5 - center, 2)));
+            var left = (int)Math.Floor(center - half); var right = (int)Math.Ceiling(center + half);
+            if (right > left) rectangles.Add(new((short)left, (short)y, (ushort)(right - left), 1));
+        }
+        if (namePlate) rectangles.Add(new(0, (short)Math.Ceiling(center * 2), (ushort)Math.Ceiling(center * 2), (ushort)Math.Ceiling(30 * scale)));
+        return rectangles.ToArray();
+    }
+
     [StructLayout(LayoutKind.Sequential)]
-    private readonly record struct XRectangle(short X, short Y, ushort Width, ushort Height);
+    internal readonly record struct XRectangle(short X, short Y, ushort Width, ushort Height);
     internal static int InputRectangleCount(Window window)
     {
         var handle = window.TryGetPlatformHandle();

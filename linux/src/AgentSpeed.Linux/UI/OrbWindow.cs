@@ -26,6 +26,7 @@ internal sealed class OrbWindow : Window
     private readonly OrbControl _canvas;
     private readonly TextBlock _name = new() { HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center, FontSize = 11 };
     private readonly DispatcherTimer _save = new() { Interval = TimeSpan.FromMilliseconds(400) };
+    private readonly EventHandler _scalingChanged;
     private bool _restoring;
     private bool _opened;
     private string _arrangement = "";
@@ -75,8 +76,10 @@ internal sealed class OrbWindow : Window
         PositionChanged += (_, _) => { if (!_restoring && _opened) { _save.Stop(); _save.Start(); } };
         Screens.Changed += ScreensChanged;
         _save.Tick += (_, _) => { _save.Stop(); SavePosition(); };
-        Closed += (_, _) => { _save.Stop(); Screens.Changed -= ScreensChanged; _canvas.Dispose(); };
+        Closed += (_, _) => { _save.Stop(); Screens.Changed -= ScreensChanged; ScalingChanged -= _scalingChanged; _canvas.Dispose(); };
         Configure(definition);
+        _scalingChanged = (_, _) => UpdateInputShape();
+        ScalingChanged += _scalingChanged;
     }
     internal bool Configure(OrbDefinition definition)
     {
@@ -94,7 +97,11 @@ internal sealed class OrbWindow : Window
     }
     private void UpdateInputShape() => X11Windows.SetClickThrough(this, Definition.ClickThrough, Definition.Size,
         _name.Parent is Control { IsVisible: true });
-    private void ScreensChanged(object? sender, EventArgs e) => _app.SyncOrbs(repositionExisting: true);
+    private void ScreensChanged(object? sender, EventArgs e)
+    {
+        _app.SyncOrbs(repositionExisting: true);
+        UpdateInputShape();
+    }
     internal void PlaceAt(OrbLocation location, Screen screen, string arrangement)
     {
         _arrangement = arrangement;
