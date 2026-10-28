@@ -15,11 +15,17 @@ internal sealed class TopBarBridge(LinuxApp app) : IAgentSpeedBridge, IDisposabl
     internal const string BusName = "io.github.zoefix.AgentSpeed";
     internal static readonly ObjectPath Path = new("/io/github/zoefix/AgentSpeed");
     private Connection? _connection;
+    private volatile bool _disposed;
     public ObjectPath ObjectPath => Path;
     public async Task StartAsync()
     {
-        _connection = new Connection(Address.Session!); await _connection.ConnectAsync();
-        await _connection.RegisterObjectAsync(this); await _connection.RegisterServiceAsync(BusName);
+        var connection = new Connection(Address.Session!);
+        _connection = connection;
+        await connection.ConnectAsync();
+        if (_disposed) return;
+        await connection.RegisterObjectAsync(this);
+        if (_disposed) return;
+        await connection.RegisterServiceAsync(BusName);
     }
     public async Task<string> GetSnapshotAsync() => await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
     {
@@ -71,5 +77,10 @@ internal sealed class TopBarBridge(LinuxApp app) : IAgentSpeedBridge, IDisposabl
         await proxy.ActivateAsync("history");
         await proxy.ActivateAsync("dashboard");
     }
-    public void Dispose() => _connection?.Dispose();
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _connection?.Dispose(); _connection = null;
+    }
 }

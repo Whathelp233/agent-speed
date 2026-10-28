@@ -140,7 +140,14 @@ internal sealed class LinuxApp : Application
         ApplyAppearance();
         if (desktop.Args?.Contains("--background") != true) Main.Show();
         CreateTray(); SyncOrbs();
+        desktop.Exit += (_, _) =>
+        {
+            DisposeServices();
+            if (_restart) Process.Start(new ProcessStartInfo("/usr/bin/agent-speed") { UseShellExecute = false });
+        };
+        base.OnFrameworkInitializationCompleted();
         await RefreshAccessibilityAsync();
+        if (Quitting) return;
         if (!Preview)
         {
             Monitor.Start(); HistoryService.Start(); Traffic.Monitor.Start(Settings.Current.Traffic.Enabled); Cost.Start();
@@ -148,9 +155,11 @@ internal sealed class LinuxApp : Application
         else StartPreview();
         _bridge = new TopBarBridge(this);
         try { await _bridge.StartAsync(); }
-        catch (Exception ex) { AgentSpeed.App.AppLog.Warn("GNOME top bar bridge is unavailable.", ex); }
+        catch (Exception ex) { if (!Quitting) AgentSpeed.App.AppLog.Warn("GNOME top bar bridge is unavailable.", ex); }
+        if (Quitting) return;
         _power = new LinuxPowerEvents(this);
         if (!Preview) await _power.StartAsync();
+        if (Quitting) return;
         Main.PropertyChanged += (_, e) => { if (e.Property == TopLevel.ActualThemeVariantProperty) SyncOrbs(); };
         var maintenanceRunning = false;
         _maintenance.Tick += async (_, _) =>
@@ -160,7 +169,7 @@ internal sealed class LinuxApp : Application
             try
             {
                 await RefreshAccessibilityAsync();
-                if (!Preview && Version != "0.0.0" && Settings.Current.NetworkEnabled && Settings.Current.AutoCheckUpdates
+                if (!Quitting && !Preview && Version != "0.0.0" && Settings.Current.NetworkEnabled && Settings.Current.AutoCheckUpdates
                     && DateTimeOffset.UtcNow >= _nextUpdateCheck)
                 {
                     _nextUpdateCheck = AgentSpeed.Presentation.Updates.UpdateSchedule.NextCheck(DateTimeOffset.UtcNow);
@@ -170,15 +179,10 @@ internal sealed class LinuxApp : Application
             finally { maintenanceRunning = false; }
         };
         _maintenance.Start();
-        desktop.Exit += (_, _) =>
-        {
-            DisposeServices();
-            if (_restart) Process.Start(new ProcessStartInfo("/usr/bin/agent-speed") { UseShellExecute = false });
-        };
-        base.OnFrameworkInitializationCompleted();
         if (desktop.Args?.Contains("--smoke-test") == true)
         {
             await System.Threading.Tasks.Task.Delay(1800);
+            if (Quitting) return;
             try
             {
                 var first = _orbs.Values.First();
@@ -190,6 +194,7 @@ internal sealed class LinuxApp : Application
                 if (X11Windows.InputContains(first, 0, 0) || !X11Windows.InputContains(first, center, center))
                     throw new InvalidOperationException("The orb input shape blocks transparent pixels or misses its visible center.");
                 await Main.CheckSurfacesAsync();
+                if (Quitting) return;
                 foreach (var orb in _orbs.Values)
                 {
                     var expected = RequestedThemeVariant == Avalonia.Styling.ThemeVariant.Light
