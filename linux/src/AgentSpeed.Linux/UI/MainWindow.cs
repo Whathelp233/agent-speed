@@ -419,6 +419,8 @@ internal sealed partial class MainWindow : Window
 
     internal DesktopPalette CurrentPalette => _theme.Palette;
 
+    internal void RefreshAccessibilityPalette() => ApplyTheme();
+
     private void ApplyTheme()
     {
         _theme.Apply(DesktopStyles.PaletteFor(IsDarkTheme, LinuxAccessibility.HighContrast));

@@ -149,7 +149,13 @@ internal sealed class LinuxApp : Application
         Main.PropertyChanged += (_, e) => { if (e.Property == TopLevel.ActualThemeVariantProperty) SyncOrbs(); };
         _maintenance.Tick += async (_, _) =>
         {
-            if (LinuxAccessibility.Refresh()) { ApplyAppearance(); SyncOrbs(); }
+            if (LinuxAccessibility.Refresh())
+            {
+                var previousVariant = RequestedThemeVariant;
+                ApplyAppearance();
+                if (RequestedThemeVariant == previousVariant) Main?.RefreshAccessibilityPalette();
+                SyncOrbs();
+            }
             if (!Preview && Version != "0.0.0" && Settings.Current.NetworkEnabled && Settings.Current.AutoCheckUpdates
                 && DateTimeOffset.UtcNow >= _nextUpdateCheck)
             {

@@ -175,6 +175,21 @@ public sealed class PlatformTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ThemeBinderAppliesHighContrastRefreshWithoutChangingLightOrDark(bool dark)
+    {
+        var binder = new ThemeBinder(DesktopStyles.PaletteFor(dark, highContrast: false));
+        var refreshed = DesktopStyles.PaletteFor(dark, highContrast: true);
+
+        Assert.Equal(dark, refreshed.Dark);
+        binder.Apply(refreshed);
+
+        Assert.True(binder.Palette.HighContrast);
+        Assert.Equal(dark, binder.Palette.Dark);
+    }
+
     private static double Contrast(Color foreground, Color background) =>
         Rgba.ContrastRatio(ToRgba(foreground), ToRgba(background));
 
