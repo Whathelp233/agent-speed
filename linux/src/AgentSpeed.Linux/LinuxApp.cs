@@ -36,6 +36,7 @@ internal sealed class LinuxApp : Application
     private readonly LinuxOrbSyncGate _orbSyncGate = new();
     public readonly Stopwatch Clock = Stopwatch.StartNew();
     public SettingsService Settings { get; private set; } = null!;
+    internal LinuxAccessibilityState Accessibility { get; private set; } = null!;
     public Localizer Loc { get; private set; } = null!;
     public SpeedHub Speed { get; private set; } = null!;
     public HistoryHub History { get; private set; } = null!;
@@ -90,6 +91,7 @@ internal sealed class LinuxApp : Application
             desktop.Shutdown(); return;
         }
         Preview = desktop.Args?.Contains("--preview") == true || desktop.Args?.Contains("--smoke-test") == true;
+        Accessibility = LinuxAccessibilityState.Create(Preview, LinuxAccessibility.ReadGnomeAsync);
         var dispatcher = new UiDispatcher();
         Settings = new SettingsService(dispatcher); Settings.Load();
         ApplyAppearance();
@@ -136,6 +138,7 @@ internal sealed class LinuxApp : Application
         ApplyAppearance();
         if (desktop.Args?.Contains("--background") != true) Main.Show();
         CreateTray(); SyncOrbs();
+        await RefreshAccessibilityAsync();
         if (!Preview)
         {
             Monitor.Start(); HistoryService.Start(); Traffic.Monitor.Start(Settings.Current.Traffic.Enabled); Cost.Start();
@@ -147,21 +150,22 @@ internal sealed class LinuxApp : Application
         _power = new LinuxPowerEvents(this);
         if (!Preview) await _power.StartAsync();
         Main.PropertyChanged += (_, e) => { if (e.Property == TopLevel.ActualThemeVariantProperty) SyncOrbs(); };
+        var maintenanceRunning = false;
         _maintenance.Tick += async (_, _) =>
         {
-            if (LinuxAccessibility.Refresh())
+            if (maintenanceRunning || Quitting) return;
+            maintenanceRunning = true;
+            try
             {
-                var previousVariant = RequestedThemeVariant;
-                ApplyAppearance();
-                if (RequestedThemeVariant == previousVariant) Main?.RefreshAccessibilityPalette();
-                SyncOrbs();
+                await RefreshAccessibilityAsync();
+                if (!Preview && Version != "0.0.0" && Settings.Current.NetworkEnabled && Settings.Current.AutoCheckUpdates
+                    && DateTimeOffset.UtcNow >= _nextUpdateCheck)
+                {
+                    _nextUpdateCheck = AgentSpeed.Presentation.Updates.UpdateSchedule.NextCheck(DateTimeOffset.UtcNow);
+                    await Updater.CheckAsync(manual: false);
+                }
             }
-            if (!Preview && Version != "0.0.0" && Settings.Current.NetworkEnabled && Settings.Current.AutoCheckUpdates
-                && DateTimeOffset.UtcNow >= _nextUpdateCheck)
-            {
-                _nextUpdateCheck = AgentSpeed.Presentation.Updates.UpdateSchedule.NextCheck(DateTimeOffset.UtcNow);
-                await Updater.CheckAsync(manual: false);
-            }
+            finally { maintenanceRunning = false; }
         };
         _maintenance.Start();
         desktop.Exit += (_, _) =>
@@ -255,9 +259,17 @@ internal sealed class LinuxApp : Application
         {
             AppearanceMode.Light => Avalonia.Styling.ThemeVariant.Light,
             AppearanceMode.Dark => Avalonia.Styling.ThemeVariant.Dark,
-            _ => LinuxAccessibility.PrefersDark ? Avalonia.Styling.ThemeVariant.Dark : Avalonia.Styling.ThemeVariant.Light,
+            _ => Accessibility.Current.PrefersDark ? Avalonia.Styling.ThemeVariant.Dark : Avalonia.Styling.ThemeVariant.Light,
         };
         if (Main is not null) Main.RequestedThemeVariant = RequestedThemeVariant;
+    }
+    private async Task RefreshAccessibilityAsync()
+    {
+        if (Preview || Quitting || !await Accessibility.RefreshAsync() || Quitting) return;
+        var previousVariant = RequestedThemeVariant;
+        ApplyAppearance();
+        if (RequestedThemeVariant == previousVariant) Main?.RefreshAccessibilityPalette();
+        SyncOrbs();
     }
     public void Activate(string action)
     {

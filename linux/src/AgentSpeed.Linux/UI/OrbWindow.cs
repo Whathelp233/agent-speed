@@ -173,14 +173,15 @@ internal sealed class OrbControl : Control, IDisposable
             _feed.Configure(definition.TrackedSources, settings.Metric, definition.EffectiveRedline(settings.Metric, settings),
                 (long)(_app.Clock.Elapsed.TotalSeconds * 1000));
             _feed.Unit = definition.Unit; _feed.Previewing = _app.Preview;
-            var effects = new EffectsPolicy(settings.Effects, LinuxAccessibility.ReduceMotion, LinuxAccessibility.HighContrast);
+            var accessibility = _app.Accessibility.Current;
+            var effects = new EffectsPolicy(settings.Effects, accessibility.ReduceMotion, accessibility.HighContrast);
             var strings = new OrbReadoutStrings(_app.Loc["unit.tokS"], _app.Loc["peak.new"],
                 settings.TitleThemes.OrbTheme(definition.TitleTheme).Labels(_app.Loc), _app.Loc.UsesLatinScript);
             // Auto is resolved from GNOME's actual preference by LinuxApp.
             var tokens = _app.RequestedThemeVariant == Avalonia.Styling.ThemeVariant.Light ? OrbTokens.Light : OrbTokens.Dark;
             _orb.Configure(new(definition.Style, definition.Size, effects, settings.ResponsePulses, settings.CelebratePeaks, _feed.Redline, strings,
                 definition.TrackedSources?.ToArray(), default), new(definition.Size, TopLevel.GetTopLevel(this)?.RenderScaling ?? 1,
-                tokens, effects, LinuxAccessibility.HighContrast ? OrbContrastColors.Default : null, bodyOpacity: definition.Opacity));
+                tokens, effects, accessibility.HighContrast ? OrbContrastColors.Default : null, bodyOpacity: definition.Opacity));
         }
         InvalidateVisual();
     }

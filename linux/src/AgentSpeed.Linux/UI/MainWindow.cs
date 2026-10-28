@@ -111,7 +111,7 @@ internal sealed partial class MainWindow : Window
 
     private bool IsDarkTheme => _app.RequestedThemeVariant == ThemeVariant.Light
         ? false
-        : _app.RequestedThemeVariant == ThemeVariant.Dark || LinuxAccessibility.PrefersDark;
+        : _app.RequestedThemeVariant == ThemeVariant.Dark || _app.Accessibility.Current.PrefersDark;
 
     internal static TextBlock Text(string text, double size = 14) => new()
     {
@@ -221,7 +221,7 @@ internal sealed partial class MainWindow : Window
             AddHandler(PointerPressedEvent, (_, e) => Console.Error.WriteLine($"PRESS {e.GetPosition(this)} source={e.Source}"),
                 Avalonia.Interactivity.RoutingStrategies.Tunnel);
         _app = app;
-        _theme = new ThemeBinder(DesktopStyles.PaletteFor(IsDarkTheme, LinuxAccessibility.HighContrast));
+        _theme = new ThemeBinder(DesktopStyles.PaletteFor(IsDarkTheme, _app.Accessibility.Current.HighContrast));
         Title = "Agent Speed";
         Width = 1120; Height = 820; MinWidth = 780; MinHeight = 560;
         BuildShell();
@@ -423,7 +423,7 @@ internal sealed partial class MainWindow : Window
 
     private void ApplyTheme()
     {
-        _theme.Apply(DesktopStyles.PaletteFor(IsDarkTheme, LinuxAccessibility.HighContrast));
+        _theme.Apply(DesktopStyles.PaletteFor(IsDarkTheme, _app.Accessibility.Current.HighContrast));
         DesktopStyles.ApplyWindow(this, _theme.Palette);
         _root.Background = _theme.Palette.Brush(_theme.Palette.Window);
         _sidebar.Background = _theme.Palette.Brush(_theme.Palette.Sidebar);

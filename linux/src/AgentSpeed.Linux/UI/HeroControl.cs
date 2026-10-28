@@ -58,7 +58,8 @@ internal sealed class HeroControl : Control
         {
             var s = _app.Settings.Current; var value = _app.Speed.Snapshot.Live.ValueFor(s.Metric);
             _stage.Update(_app.Clock.Elapsed.TotalSeconds, value, s.Redline, HeatMath.RawTier(value, s.Redline), SpeedTitles.Raw(value, s.Redline),
-                new(s.Effects, LinuxAccessibility.ReduceMotion, LinuxAccessibility.HighContrast, _app.ActualThemeVariant != Avalonia.Styling.ThemeVariant.Light));
+                new(s.Effects, _app.Accessibility.Current.ReduceMotion, _app.Accessibility.Current.HighContrast,
+                    _app.ActualThemeVariant != Avalonia.Styling.ThemeVariant.Light));
         }
         context.Custom(new HeroDraw(this, new Rect(Bounds.Size)));
     }
