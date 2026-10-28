@@ -49,14 +49,16 @@ internal sealed class TopBarBridge(LinuxApp app) : IAgentSpeedBridge, IDisposabl
         if (action is "dashboard" or "history" or "settings" or "toggle-orbs" or "restore-input")
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => app.Activate(action));
     }
-    public static async Task ActivateExistingAsync(string action)
+    public static async Task<bool> ActivateExistingAsync(string action)
     {
-        try
+        var failure = await ExistingInstanceActivation.RetryAsync(async () =>
         {
             using var connection = new Connection(Address.Session!); await connection.ConnectAsync();
             await connection.CreateProxy<IAgentSpeedBridge>(BusName, Path).ActivateAsync(action);
-        }
-        catch (Exception ex) { AgentSpeed.App.AppLog.Warn("Could not activate the running instance.", ex); }
+        });
+        if (failure is null) return true;
+        AgentSpeed.App.AppLog.Warn("Could not activate the running instance.", failure);
+        return false;
     }
     internal static async Task CheckAsync()
     {
