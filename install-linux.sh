@@ -18,12 +18,37 @@ done
 if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; then echo 'Linux x64 is required.' >&2; exit 1; fi
 command -v apt-get >/dev/null 2>&1 || { echo 'Install the .deb on Ubuntu 24.04.' >&2; exit 1; }
 as_root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo "$@"; fi; }
+resolve_xdg_home() {
+    xdg_value=$1
+    fallback=$2
+    case "$xdg_value" in
+        /*)
+            while [ "$xdg_value" != / ] && [ "${xdg_value%/}" != "$xdg_value" ]; do xdg_value=${xdg_value%/}; done
+            printf '%s\n' "$xdg_value"
+            ;;
+        *)
+            home=${HOME:-}
+            case "$home" in
+                /*) ;;
+                *) echo 'HOME must be an absolute path to uninstall Agent Speed data.' >&2; return 1;;
+            esac
+            while [ "$home" != / ] && [ "${home%/}" != "$home" ]; do home=${home%/}; done
+            case "$home" in
+                /) printf '/%s\n' "$fallback";;
+                *) printf '%s/%s\n' "$home" "$fallback";;
+            esac
+            ;;
+    esac
+}
 if [ "$action" = uninstall ]; then
+    config_home=$(resolve_xdg_home "${XDG_CONFIG_HOME:-}" .config)
+    data_home=$(resolve_xdg_home "${XDG_DATA_HOME:-}" .local/share)
+    cache_home=$(resolve_xdg_home "${XDG_CACHE_HOME:-}" .cache)
     if command -v agent-speed >/dev/null 2>&1; then agent-speed --quit || true; fi
     as_root apt-get remove -y agent-speed
-    rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/agent-speed.desktop"
+    rm -f "${config_home%/}/autostart/agent-speed.desktop"
     if [ "$purge" = 1 ]; then
-        rm -rf -- "${XDG_CONFIG_HOME:-$HOME/.config}/agent-speed" "${XDG_DATA_HOME:-$HOME/.local/share}/agent-speed" "${XDG_CACHE_HOME:-$HOME/.cache}/agent-speed"
+        rm -rf -- "${config_home%/}/agent-speed" "${data_home%/}/agent-speed" "${cache_home%/}/agent-speed"
     fi
     exit 0
 fi
