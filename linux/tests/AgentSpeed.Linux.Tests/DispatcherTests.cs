@@ -5,11 +5,12 @@ namespace AgentSpeed.Linux.Tests;
 
 public sealed class DispatcherTests
 {
-    [Theory]
-    [InlineData(DispatcherPriority.Normal, AvaloniaPriority.Normal)]
-    [InlineData(DispatcherPriority.Background, AvaloniaPriority.Background)]
-    public void MapsSharedTimerPrioritiesToAvalonia(DispatcherPriority shared, AvaloniaPriority avalonia)
-        => Assert.Equal(avalonia, DispatcherTimer.MapPriority(shared));
+    [Fact]
+    public void MapsSharedTimerPrioritiesToAvalonia()
+    {
+        Assert.Equal(AvaloniaPriority.Normal, DispatcherTimer.MapPriority(DispatcherPriority.Normal));
+        Assert.Equal(AvaloniaPriority.Background, DispatcherTimer.MapPriority(DispatcherPriority.Background));
+    }
 
     [Fact]
     public void TimersUseThePassedLinuxDispatcher()
