@@ -213,11 +213,57 @@ internal sealed class LinuxApp : Application
                 SyncOrbs();
                 if (_orbs.ContainsKey(closedId))
                     throw new InvalidOperationException("SyncOrbs retained a closed orb window.");
+                await CheckOrbLifecycleAsync(closedId);
             }
             catch (Exception ex) { Console.Error.WriteLine($"UI smoke test failed: {ex}"); Environment.ExitCode = 1; }
             finally { Quit(); }
         }
     }
+
+    private async Task CheckOrbLifecycleAsync(string closedId)
+    {
+        Settings.Update(s => s with { Orbs = s.Orbs.Replace(s.Orbs.Find(closedId)! with { Visible = true }) });
+        await Task.Delay(300);
+        if (!_orbs.TryGetValue(closedId, out var restored))
+            throw new InvalidOperationException("A user-closed orb could not be shown again.");
+        restored.Position = new PixelPoint(restored.Position.X - 13, restored.Position.Y - 11);
+        var wanted = restored.LiveCenter;
+        // Hide before the 400 ms debounce expires: close must persist the final move synchronously.
+        Settings.Update(s => s.WithShowOrbs(false));
+        if (_orbs.Count != 0) throw new InvalidOperationException("Hiding all orbs retained live windows.");
+        Settings.Update(s => s.WithShowOrbs(true));
+        await Task.Delay(300);
+        if (!_orbs.TryGetValue(closedId, out var shown) || OrbGeometry.Distance(wanted, shown.LiveCenter) > 2)
+            throw new InvalidOperationException("Hide/show lost an orb move that was still waiting for its save debounce.");
+        for (var i = 0; i < 3; i++)
+        {
+            Settings.Update(s => s.WithShowOrbs(false));
+            Settings.Update(s => s.WithShowOrbs(true));
+        }
+        await Task.Delay(300);
+        var originalCount = _orbs.Count;
+        foreach (var duplicate in new[] { false, true })
+        {
+            var edit = duplicate ? OrbEditing.Duplicate(Settings.Current.Orbs, closedId)
+                : OrbEditing.Add(Settings.Current.Orbs, closedId, SourceSet.Everything);
+            if (edit is null) throw new InvalidOperationException("The preview could not add or duplicate an orb.");
+            var id = edit.Created.Single();
+            var placement = PlaceNewOrb(edit.Document, id, closedId);
+            Settings.Update(s => s with { Orbs = placement.Document });
+            await Task.Delay(300);
+            if (_orbs.Count != originalCount + 1 || !_orbs.TryGetValue(id, out var added))
+                throw new InvalidOperationException("Adding an orb did not create exactly one window.");
+            var anchor = _orbs[closedId];
+            var scale = Main.Screens.ScreenFromWindow(added)?.Scaling ?? 1;
+            if (OrbGeometry.Distance(anchor.LiveCenter, added.LiveCenter)
+                < (anchor.Definition.Size + added.Definition.Size) * scale / 2 + OrbGeometry.Gap * scale - 2)
+                throw new InvalidOperationException("An added or duplicated orb overlaps its anchor.");
+            Settings.Update(s => s with { Orbs = OrbEditing.Remove(s.Orbs, id)! });
+            if (_orbs.Count != originalCount || _orbs.ContainsKey(id))
+                throw new InvalidOperationException("Removing an orb retained a stale window.");
+        }
+    }
+
     public void SyncOrbs(bool repositionExisting = false)
     {
         if (Quitting || _disposing) return;
