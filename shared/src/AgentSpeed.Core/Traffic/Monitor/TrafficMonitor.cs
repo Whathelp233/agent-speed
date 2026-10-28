@@ -48,7 +48,7 @@ public sealed class TrafficMonitor : IDisposable
         ArgumentNullException.ThrowIfNull(hub);
         return new TrafficMonitor(new TrafficCore(storePath, TrafficPlatform.CurrentLinux(),
             new Linux.ProcessReader(), new Linux.MachineCounters(), new Linux.HelperSampler(),
-            hub.Publish, hub.PublishDays, log));
+            hub.Publish, hub.PublishDays, log, monotonicMs: Linux.BoottimeClock.Milliseconds));
     }
 
     /// <summary>Off stops sampling and the helper connection at once and publishes <see cref="TrafficSnapshot.Off"/>.</summary>

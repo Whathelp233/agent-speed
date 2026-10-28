@@ -223,6 +223,25 @@ public sealed class TrafficMonitorTests : IDisposable
         Assert.Equal(4000, harness.Last.MachineToday.Rx);
     }
 
+    [Fact]
+    public void ALongSamplingGapDoesNotBecomeALiveRateOrHistoryBucket()
+    {
+        var harness = new Harness(StorePath);
+        harness.Core.StartInline(true);
+        harness.Tick(); // Establish the first counter baseline.
+        harness.Machine.Add(1000, 0);
+        harness.Tick();
+        Assert.Equal(1000d, harness.Last.MachineLive?.Rx);
+
+        // Simulate suspend with the Linux CLOCK_BOOTTIME elapsed time, without suspending the test machine.
+        harness.Machine.Add(500_000, 0);
+        harness.AdvanceAndTick(60_000);
+
+        Assert.Null(harness.Last.MachineLive);
+        Assert.Equal(TrafficRate.Zero, harness.Last.MachineHistory[^1].Rate);
+        Assert.Equal(501_000, harness.Last.MachineToday.Rx);
+    }
+
     /// <summary>A core on the test thread with fake samplers and a clock that advances one second per tick.</summary>
     private sealed class Harness
     {
@@ -249,7 +268,12 @@ public sealed class TrafficMonitorTests : IDisposable
 
         public void Tick()
         {
-            NowMs += 1000;
+            AdvanceAndTick(1000);
+        }
+
+        public void AdvanceAndTick(long elapsedMs)
+        {
+            NowMs += elapsedMs;
             Core.TickInline();
         }
     }
