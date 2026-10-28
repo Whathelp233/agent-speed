@@ -8,6 +8,7 @@ namespace AgentSpeed.Linux.UI;
 
 internal sealed partial class MainWindow
 {
+    private const int ReportingSettingsTabIndex = 6;
     private TextBlock _reportStatus = Text("", 12);
     private ContentControl _consent = new();
     private TextBlock _profileStatus = Text("", 12);
@@ -27,12 +28,18 @@ internal sealed partial class MainWindow
         if (!_reportSubscribed)
         {
             _reportSubscribed = true;
-            report.Changed += (_, _) => _reportStatus.Text = report.Status.Text(_app.Loc, DateTimeOffset.UtcNow);
+            report.Changed += (_, _) =>
+            {
+                _reportStatus.Text = report.Status.Text(_app.Loc, DateTimeOffset.UtcNow);
+                UpdatePairingTimer();
+            };
             report.ConsentChanged += (_, _) => RenderConsent();
+            _app.Settings.Changed += OnPairingSettingsChanged;
             _pairingTimer.Tick += async (_, _) =>
             {
-                if (_profileBusy || _page != "settings" || _pairing is not { State: "waiting" or "pending" } current || current.ExpiresAt <= report.ProfileNow)
-                { if (_pairing?.ExpiresAt <= report.ProfileNow) _pairingTimer.Stop(); return; }
+                if (_profileBusy) return;
+                if (!CanPollPairing()) { UpdatePairingTimer(); return; }
+                var current = _pairing!;
                 _profileBusy = true;
                 try
                 {
@@ -40,9 +47,13 @@ internal sealed partial class MainWindow
                     if (response?.Status == 200 && ReportProfileJson.Pairing(response.Body, report.ProfileNow) is { } next)
                     { _pairing = next with { Code = _inviter ? current.Code : null }; ShowPairing(); }
                 }
-                finally { _profileBusy = false; }
+                finally { _profileBusy = false; UpdatePairingTimer(); }
             };
-            Closed += (_, _) => _pairingTimer.Stop();
+            Closed += (_, _) =>
+            {
+                _pairingTimer.Stop();
+                _app.Settings.Changed -= OnPairingSettingsChanged;
+            };
         }
         _reportStatus.Text = report.Status.Text(_app.Loc, DateTimeOffset.UtcNow);
         RenderConsent();
@@ -69,7 +80,7 @@ internal sealed partial class MainWindow
             {
                 var response = await report.ProfileRequestAsync("POST", "/v1/profile/pairings", "{}"u8.ToArray());
                 _pairing = response?.Status == 201 ? ReportProfileJson.Pairing(response.Body, report.ProfileNow) : null;
-                _inviter = true; ShowPairing(); _pairingTimer.Start();
+                _inviter = true; ShowPairing();
             }));
         var code = new TextBox { PlaceholderText = Tr("Pairing code from the original device", "原设备生成的一次性配对码") };
         panel.Children.Add(code);
@@ -78,7 +89,7 @@ internal sealed partial class MainWindow
             if (ReportProfileJson.NormalizeCode(code.Text) is not { } normalized) return;
             var response = await report.ProfileRequestAsync("POST", "/v1/profile/pairings/claim", ReportJson.Object(("code", ReportJson.Of(normalized))).ToCompactBytes());
             _pairing = response?.Status == 202 ? ReportProfileJson.Pairing(response.Body, report.ProfileNow) : null;
-            code.Text = ""; _inviter = false; ShowPairing(); _pairingTimer.Start();
+            code.Text = ""; _inviter = false; ShowPairing();
         }));
         panel.Children.Add(Button(Tr("Approve requesting device…", "批准请求配对的设备…"), async () =>
         {
@@ -125,7 +136,23 @@ internal sealed partial class MainWindow
     private void ShowPairing()
     {
         _profileStatus.Text = _pairing is { } p ? $"{p.State}   {p.Code}\n{p.Claimant?.Platform}   {p.ExpiresAt:t}" : Tr("Pairing unavailable.", "暂时无法配对。");
-        if (_pairing?.State is "approved" or "expired" or "cancelled") _pairingTimer.Stop();
+        UpdatePairingTimer();
+    }
+
+    private void OnPairingSettingsChanged(object? sender, AgentSpeed.Services.SettingsChangedEventArgs e) => UpdatePairingTimer();
+
+    private bool CanPollPairing() => ShouldPollPairing(IsVisible, _page == "settings",
+        _settingsTabs?.SelectedIndex == ReportingSettingsTabIndex, _app.Report.NetworkEnabled, _pairing, _app.Report.ProfileNow);
+
+    internal static bool ShouldPollPairing(bool windowVisible, bool settingsPage, bool reportingTabSelected, bool networkEnabled,
+        ReportPairing? pairing, DateTimeOffset now) =>
+        windowVisible && settingsPage && reportingTabSelected && networkEnabled
+        && pairing is { State: "waiting" or "pending" } active && active.ExpiresAt > now;
+
+    private void UpdatePairingTimer()
+    {
+        if (CanPollPairing()) _pairingTimer.Start();
+        else _pairingTimer.Stop();
     }
     private async Task RefreshProfile()
     {

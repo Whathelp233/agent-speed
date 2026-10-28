@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using AgentSpeed.Linux.Rendering;
 using AgentSpeed.Linux.UI;
 using AgentSpeed.Linux.Platform;
+using AgentSpeed.Core.Reporting;
 using AgentSpeed.Presentation.Colors;
 using AgentSpeed.Presentation.Motion;
 using AgentSpeed.Presentation.Orb;
@@ -190,6 +191,20 @@ public sealed class PlatformTests
             Assert.False(File.Exists(Path.Combine(directory, id + ".pending.key")));
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+    [Fact]
+    public void PairingPollingRequiresTheVisibleReportingTabNetworkAndLivePairing()
+    {
+        var now = DateTimeOffset.Parse("2026-10-28T00:00:00Z");
+        var waiting = new ReportPairing("pairing-id", "waiting", now.AddMinutes(1), null, null);
+        Assert.True(MainWindow.ShouldPollPairing(true, true, true, true, waiting, now));
+        Assert.False(MainWindow.ShouldPollPairing(false, true, true, true, waiting, now));
+        Assert.False(MainWindow.ShouldPollPairing(true, false, true, true, waiting, now));
+        Assert.False(MainWindow.ShouldPollPairing(true, true, false, true, waiting, now));
+        Assert.False(MainWindow.ShouldPollPairing(true, true, true, false, waiting, now));
+        Assert.False(MainWindow.ShouldPollPairing(true, true, true, true, null, now));
+        Assert.False(MainWindow.ShouldPollPairing(true, true, true, true, waiting with { State = "approved" }, now));
+        Assert.False(MainWindow.ShouldPollPairing(true, true, true, true, waiting with { ExpiresAt = now }, now));
     }
     [Fact]
     public void RelativeXdgPathIsIgnored()

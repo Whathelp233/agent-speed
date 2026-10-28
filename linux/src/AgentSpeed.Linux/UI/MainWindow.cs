@@ -247,7 +247,14 @@ internal sealed partial class MainWindow : Window
         };
         _historyRefresh.Start();
         Closed += (_, _) => { _historyRefresh.Stop(); _liveRefresh.Stop(); };
-        PropertyChanged += (_, e) => { if (e.Property == IsVisibleProperty) _app.Traffic.Monitor.SetDetailDemand(IsVisible); };
+        PropertyChanged += (_, e) =>
+        {
+            if (e.Property == IsVisibleProperty)
+            {
+                _app.Traffic.Monitor.SetDetailDemand(IsVisible);
+                UpdatePairingTimer();
+            }
+        };
         Closing += (_, e) => { if (!_app.Quitting) { e.Cancel = true; Hide(); } };
         RefreshLive();
         RefreshHistory();
@@ -390,6 +397,7 @@ internal sealed partial class MainWindow : Window
             _body.Content = _pageScroll;
             _pageScroll.Offset = default;
         }
+        UpdatePairingTimer();
         UpdateNavigation();
         _app.Traffic.Monitor.SetDetailDemand(IsVisible);
         RefreshLive();
@@ -494,8 +502,10 @@ internal sealed partial class MainWindow : Window
             Tab(T("Reporting"), Reporting()),
             Tab(T("About"), About()),
         };
+        tabs.SelectionChanged += (_, _) => UpdatePairingTimer();
         tabs.SelectedIndex = selected;
         _settingsTabs = tabs;
+        UpdatePairingTimer();
         var title = ThemedText(L("settings.title"), 26, TextRole.Primary);
         title.FontWeight = FontWeight.SemiBold;
         _settingsSubtitle = ThemedText(T("Appearance, sources, titles and privacy."), 12, TextRole.Secondary);
