@@ -6,7 +6,9 @@ using AgentSpeed.Linux.Platform;
 using AgentSpeed.Linux.UI;
 using AgentSpeed.Linux.Services;
 using AgentSpeed.Presentation.Localization;
+using AgentSpeed.Presentation.Layout;
 using AgentSpeed.Presentation.Settings;
+using AgentSpeed.Presentation.Settings.Orbs;
 using AgentSpeed.Reporting;
 using AgentSpeed.Services;
 using AgentSpeed.Traffic;
@@ -51,6 +53,27 @@ internal sealed class LinuxApp : Application
         ?? typeof(LinuxApp).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
     public string Version => BuildVersion;
     public event Action? Changed;
+
+    internal OrbLayoutResult PlaceNewOrb(OrbsDocument document, string newId, string? fromId)
+    {
+        var displays = LinuxOrbDisplays();
+        var centers = _orbs.Values
+            .Select(window => (window.Definition.Id, Center: window.LiveCenter))
+            .ToDictionary(pair => pair.Id, pair => pair.Center, StringComparer.Ordinal);
+        return LinuxOrbLayout.PlaceNew(document, displays, centers, newId, fromId);
+    }
+
+    internal IReadOnlyList<OrbDisplay> LinuxOrbDisplays()
+    {
+        var screens = Main?.Screens.All ?? [];
+        var primary = Main?.Screens.Primary;
+        string Key(Screen screen) => screen.DisplayName ?? $"display-{screen.Bounds.X}-{screen.Bounds.Y}-{screen.Bounds.Width}-{screen.Bounds.Height}";
+        var primaryKey = primary is null ? null : Key(primary);
+        return screens.Select(screen => new OrbDisplay(Key(screen),
+            new RectD(screen.WorkingArea.X, screen.WorkingArea.Y, screen.WorkingArea.Width, screen.WorkingArea.Height),
+            screen.Scaling, string.Equals(Key(screen), primaryKey, StringComparison.Ordinal))).ToArray();
+    }
+
     public override void Initialize() => Styles.Add(new FluentTheme());
 
     public override async void OnFrameworkInitializationCompleted()

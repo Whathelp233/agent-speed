@@ -6,9 +6,11 @@ using AgentSpeed.Linux.Platform;
 using AgentSpeed.Core.Reporting;
 using AgentSpeed.Presentation.Colors;
 using AgentSpeed.Presentation.Motion;
+using AgentSpeed.Presentation.Layout;
 using AgentSpeed.Presentation.Orb;
 using AgentSpeed.Presentation.Orb.Gpu;
 using AgentSpeed.Presentation.Settings;
+using AgentSpeed.Presentation.Settings.Orbs;
 using AgentSpeed.Reporting;
 using Avalonia.Media;
 using SkiaSharp;
@@ -18,6 +20,26 @@ namespace AgentSpeed.Linux.Tests;
 
 public sealed class PlatformTests
 {
+    [Fact]
+    public void LinuxNewOrbPlacementUsesSharedFreeSpotRules()
+    {
+        var display = new OrbDisplay("A", new RectD(0, 0, 1920, 1080), 1, true);
+        var document = new OrbsDocument([new OrbDefinition("existing"), new OrbDefinition("new")]);
+        var centers = new Dictionary<string, PointD>(StringComparer.Ordinal)
+        {
+            ["existing"] = new PointD(960, 520),
+        };
+
+        var result = LinuxOrbLayout.PlaceNew(document, [display], centers, "new", "existing");
+        var existing = result.Locations["existing"];
+        var added = result.Locations["new"];
+
+        Assert.True(OrbGeometry.Distance(existing.Center, added.Center)
+            >= existing.Radius + added.Radius + OrbGeometry.Gap - OrbGeometry.Tolerance);
+        Assert.Equal(OrbPositionRecord.FromCenter(display.Key, added.Center, added.Radius, display.Work, display.Scale),
+            result.Document.RecordFor(result.Arrangement, "new"));
+    }
+
     [Theory]
     [InlineData("'prefer-dark'", "'Yaru'", true)]
     [InlineData("'prefer-light'", "'Yaru-dark'", false)]

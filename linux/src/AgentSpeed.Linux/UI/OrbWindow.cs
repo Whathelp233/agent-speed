@@ -31,6 +31,15 @@ internal sealed class OrbWindow : Window
     private string _arrangement = "";
     public OrbDefinition Definition { get; private set; }
     internal OrbAppearance Appearance => _canvas.Appearance;
+    internal PointD LiveCenter
+    {
+        get
+        {
+            var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary;
+            var scale = screen?.Scaling ?? 1;
+            return new PointD(Position.X + Width * scale / 2, Position.Y + Definition.Size * .75 * scale);
+        }
+    }
     public OrbWindow(LinuxApp app, OrbDefinition definition)
     {
         _app = app; Definition = definition;

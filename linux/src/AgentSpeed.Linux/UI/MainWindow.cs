@@ -702,7 +702,12 @@ internal sealed partial class MainWindow : Window
             Button(T("Add orb"), () =>
             {
                 var result = OrbEditing.Add(_app.Settings.Current.Orbs, null, SourceSet.Everything);
-                if (result is not null) _app.Settings.Update(x => x with { Orbs = result.Document });
+                if (result is not null)
+                {
+                    var id = result.Created.FirstOrDefault();
+                    var document = id is null ? result.Document : _app.PlaceNewOrb(result.Document, id, null).Document;
+                    _app.Settings.Update(x => x with { Orbs = document });
+                }
                 SelectPage("settings");
             }));
         foreach (var o in s.Orbs.Orbs)
@@ -742,7 +747,12 @@ internal sealed partial class MainWindow : Window
                     Button(T("Duplicate"), () =>
                     {
                         var result = OrbEditing.Duplicate(_app.Settings.Current.Orbs, o.Id);
-                        if (result is not null) _app.Settings.Update(x => x with { Orbs = result.Document });
+                        if (result is not null)
+                        {
+                            var id = result.Created.FirstOrDefault();
+                            var document = id is null ? result.Document : _app.PlaceNewOrb(result.Document, id, o.Id).Document;
+                            _app.Settings.Update(x => x with { Orbs = document });
+                        }
                         SelectPage("settings");
                     }),
                     Button(T("Remove"), () =>
