@@ -332,6 +332,32 @@ internal sealed partial class MainWindow
         await Task.Delay(60);
     }
 
+    private void AssertSharedSourceFolderEditor()
+    {
+        var original = _app.Settings.Current;
+        try
+        {
+            var panel = (StackPanel)Sources();
+            var bodies = panel.Children.OfType<Border>().Select(c => (StackPanel)c.Child!).ToArray();
+            if (bodies.Length != Enum.GetValues<SourceKind>().Select(RootProperty).Distinct().Count())
+                throw new InvalidOperationException("Sources contain duplicate editors for a shared folder.");
+            var claude = bodies.Single(b => b.Children.Count == 3);
+            if (claude.Children[0] is not CheckBox code || claude.Children[1] is not CheckBox desktop)
+                throw new InvalidOperationException("The Claude folder does not retain separate source toggles.");
+            code.IsChecked = false; desktop.IsChecked = true;
+            if (_app.Settings.Current.IsSourceEnabled(SourceKind.ClaudeCode)
+                || !_app.Settings.Current.IsSourceEnabled(SourceKind.ClaudeDesktop))
+                throw new InvalidOperationException("Claude source toggles are not independent.");
+            var input = (TextBox)((StackPanel)claude.Children[2]).Children[1];
+            var path = Path.Combine(LinuxPaths.Cache, "synthetic-claude-records");
+            input.Text = path;
+            input.RaiseEvent(new FocusChangedEventArgs(InputElement.LostFocusEvent));
+            if (_app.Settings.Current.ClaudeRoot != path)
+                throw new InvalidOperationException("The shared Claude source folder was not saved.");
+        }
+        finally { _app.Settings.Update(_ => original); }
+    }
+
     private void AssertSourceFolderValidation()
     {
         var original = _app.Settings.Current.CodexRoot;
@@ -605,6 +631,7 @@ internal sealed partial class MainWindow
             throw new InvalidOperationException("Restoring the saved numeric value retained a stale validation error.");
         await AssertRedlineSettingsAsync();
         AssertSourceFolderValidation();
+        AssertSharedSourceFolderEditor();
 
         await AssertLanguageKeepsHistoryFilterAsync();
         _historySource.SelectedIndex = 0;

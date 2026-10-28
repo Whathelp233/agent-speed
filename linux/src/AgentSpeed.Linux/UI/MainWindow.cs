@@ -655,17 +655,19 @@ internal sealed partial class MainWindow : Window
     private Control Sources()
     {
         var panel = Stack(Text(T("Only local usage records are read. Empty folders use automatic discovery."), 12));
-        foreach (var kind in Enum.GetValues<SourceKind>())
+        foreach (var group in Enum.GetValues<SourceKind>().GroupBy(RootProperty))
         {
-            var property = RootProperty(kind);
-            var value = (string?)typeof(AppSettings).GetProperty(property)?.GetValue(_app.Settings.Current);
-            panel.Children.Add(Card(Stack(
-                Toggle(kind.ToString(), _app.Settings.Current.IsSourceEnabled(kind),
-                    v => _app.Settings.Update(s => s.WithSourceEnabled(kind, v))),
-                Input(T("Folder"), value, v =>
+            var kind = group.First();
+            var value = (string?)typeof(AppSettings).GetProperty(group.Key)?.GetValue(_app.Settings.Current);
+            var body = Stack();
+            foreach (var source in group)
+                body.Children.Add(Toggle(L(DisplayText.SourceKey(source)), _app.Settings.Current.IsSourceEnabled(source),
+                    v => _app.Settings.Update(s => s.WithSourceEnabled(source, v))));
+            body.Children.Add(Input(T("Folder"), value, v =>
                 {
                     _app.Settings.Update(s => WithRoot(s, kind, v.Length == 0 ? null : v));
-                }, v => v.Length > 0 && !Path.IsPathFullyQualified(v) ? T("Choose an absolute folder path.") : null))));
+                }, v => v.Length > 0 && !Path.IsPathFullyQualified(v) ? T("Choose an absolute folder path.") : null));
+            panel.Children.Add(Card(body));
         }
         return panel;
     }
