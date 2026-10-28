@@ -40,6 +40,43 @@ public sealed class PlatformTests
             result.Document.RecordFor(result.Arrangement, "new"));
     }
 
+    [Fact]
+    public void LinuxLayoutKeepsOrbPositionWhenDisplayArrangementChanges()
+    {
+        var first = new OrbDisplay("A", new RectD(0, 0, 1920, 1080), 1, true);
+        var second = new OrbDisplay("B", new RectD(1920, 0, 2560, 1440), 1.5, false);
+        var orb = new OrbDefinition("orb");
+        var center = new PointD(800, 420);
+        var record = OrbPositionRecord.FromCenter(first.Key, center, orb.RadiusPx(first.Scale), first.Work, first.Scale);
+        var document = new OrbsDocument([orb]).WithPosition("A", orb.Id, record);
+
+        var result = LinuxOrbLayout.Resolve(document, [first, second]);
+
+        Assert.Equal(record.ToCenter(first.Work, first.Scale, orb.RadiusPx(first.Scale)), result.Locations[orb.Id].Center);
+        Assert.Equal(first.Key, result.Locations[orb.Id].Display);
+        Assert.Equal(record, result.Document.RecordFor(result.Arrangement, orb.Id));
+    }
+
+    [Fact]
+    public void LinuxLayoutMovesMissingDisplayPositionToPrimaryUsingSavedAnchors()
+    {
+        var removed = new OrbDisplay("removed", new RectD(0, 0, 1920, 1080), 1, false);
+        var primary = new OrbDisplay("primary", new RectD(1920, 0, 2560, 1440), 1.5, true);
+        var orb = new OrbDefinition("orb");
+        var record = new OrbPositionRecord(removed.Key, OrbAxis.Fraction(.4), OrbAxis.High(12));
+        var document = new OrbsDocument([orb]).WithPosition("primary+removed", orb.Id, record);
+
+        var result = LinuxOrbLayout.Resolve(document, [primary]);
+        var expected = result.Document.RecordFor(result.Arrangement, orb.Id)
+            ?? throw new InvalidOperationException("The resolved layout did not store the orb position.");
+
+        Assert.Equal(primary.Key, result.Locations[orb.Id].Display);
+        Assert.Equal(primary.Key, expected.Display);
+        Assert.Equal(new OrbAxis(OrbAxisAnchor.Fraction, .4), expected.X);
+        Assert.Equal(new OrbAxis(OrbAxisAnchor.High, 12), expected.Y);
+        Assert.Equal(expected.ToCenter(primary.Work, primary.Scale, orb.RadiusPx(primary.Scale)), result.Locations[orb.Id].Center);
+    }
+
     [Theory]
     [InlineData("'prefer-dark'", "'Yaru'", true)]
     [InlineData("'prefer-light'", "'Yaru-dark'", false)]

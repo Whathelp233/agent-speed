@@ -68,7 +68,7 @@ internal sealed class OrbWindow : Window
             DispatcherTimer.RunOnce(() =>
             {
                 if (!IsVisible) return;
-                RestorePosition(); _opened = true;
+                app.SyncOrbs(repositionExisting: true); _opened = true;
             }, TimeSpan.FromMilliseconds(250));
             UpdateInputShape(); _canvas.Start();
         };
@@ -77,10 +77,8 @@ internal sealed class OrbWindow : Window
         _save.Tick += (_, _) => { _save.Stop(); SavePosition(); };
         Closed += (_, _) => { _save.Stop(); Screens.Changed -= ScreensChanged; _canvas.Dispose(); };
         Configure(definition);
-        // Supply an initial placement hint before mapping as well.
-        RestorePosition();
     }
-    public void Configure(OrbDefinition definition)
+    internal bool Configure(OrbDefinition definition)
     {
         var resize = Definition.Size != definition.Size;
         Definition = definition; Title = definition.Name ?? "Agent Speed"; Topmost = definition.AlwaysOnTop;
@@ -91,26 +89,18 @@ internal sealed class OrbWindow : Window
         if (_name.Parent is Control plate) plate.IsVisible = definition.ShowName ?? (_app.Settings.Current.OrbNames == OrbNamesMode.Always
             || _app.Settings.Current.OrbNames == OrbNamesMode.Auto && (_app.Settings.Current.Orbs.Orbs.Count(o => o.Visible) > 1 || !definition.Sources.IsAll));
         _canvas.Configure(definition);
-        if (_opened) { UpdateInputShape(); if (resize) RestorePosition(); }
+        if (_opened) UpdateInputShape();
+        return resize;
     }
     private void UpdateInputShape() => X11Windows.SetClickThrough(this, Definition.ClickThrough, Definition.Size,
         _name.Parent is Control { IsVisible: true });
-    private static string Key(Screen s) => s.DisplayName ?? $"display-{s.Bounds.X}-{s.Bounds.Y}-{s.Bounds.Width}-{s.Bounds.Height}";
-    private void ScreensChanged(object? sender, EventArgs e) => RestorePosition();
-    private void RestorePosition()
+    private void ScreensChanged(object? sender, EventArgs e) => _app.SyncOrbs(repositionExisting: true);
+    internal void PlaceAt(OrbLocation location, Screen screen, string arrangement)
     {
-        var screens = Screens.All; if (screens.Count == 0) return;
-        _arrangement = OrbsDocument.ArrangementKey(screens.Select(Key));
-        var record = _app.Settings.Current.Orbs.RecordFor(_arrangement, Definition.Id);
-        var screen = screens.FirstOrDefault(s => Key(s) == record?.Display) ?? Screens.Primary ?? screens[0];
-        var work = screen.WorkingArea; var scale = screen.Scaling;
-        var radius = Definition.Size * scale / 2;
-        var area = new RectD(work.X, work.Y, work.Width, work.Height);
-        var center = record?.ToCenter(area, scale, radius) ?? new PointD(work.Right - radius - 24 * scale,
-            work.Y + radius + (24 + 28 * _app.Settings.Current.Orbs.IndexOf(Definition.Id)) * scale);
+        _arrangement = arrangement;
         _restoring = true;
-        Position = PositionFor(center, screen);
-        _restoring = false;
+        try { Position = PositionFor(location.Center, screen); }
+        finally { _restoring = false; }
     }
     private void SavePosition()
     {

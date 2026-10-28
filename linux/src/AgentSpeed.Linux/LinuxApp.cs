@@ -33,6 +33,8 @@ internal sealed class LinuxApp : Application
     private readonly Avalonia.Threading.DispatcherTimer _maintenance = new() { Interval = TimeSpan.FromSeconds(30) };
     private DateTimeOffset _nextUpdateCheck;
     private readonly Dictionary<string, OrbWindow> _orbs = [];
+    private bool _syncingOrbs;
+    private bool _repositionOrbsRequested;
     public readonly Stopwatch Clock = Stopwatch.StartNew();
     public SettingsService Settings { get; private set; } = null!;
     public Localizer Loc { get; private set; } = null!;
@@ -65,13 +67,9 @@ internal sealed class LinuxApp : Application
 
     internal IReadOnlyList<OrbDisplay> LinuxOrbDisplays()
     {
-        var screens = Main?.Screens.All ?? [];
+        var screens = Main?.Screens.All ?? Array.Empty<Screen>();
         var primary = Main?.Screens.Primary;
-        string Key(Screen screen) => screen.DisplayName ?? $"display-{screen.Bounds.X}-{screen.Bounds.Y}-{screen.Bounds.Width}-{screen.Bounds.Height}";
-        var primaryKey = primary is null ? null : Key(primary);
-        return screens.Select(screen => new OrbDisplay(Key(screen),
-            new RectD(screen.WorkingArea.X, screen.WorkingArea.Y, screen.WorkingArea.Width, screen.WorkingArea.Height),
-            screen.Scaling, string.Equals(Key(screen), primaryKey, StringComparison.Ordinal))).ToArray();
+        return LinuxOrbLayout.Displays(screens, primary);
     }
 
     public override void Initialize() => Styles.Add(new FluentTheme());
@@ -195,20 +193,63 @@ internal sealed class LinuxApp : Application
             finally { Quit(); }
         }
     }
-    public void SyncOrbs()
+    public void SyncOrbs(bool repositionExisting = false)
     {
-        var settings = Settings.Current;
-        var document = settings.Orbs;
-        foreach (var (id, window) in _orbs.ToArray())
-            if (!settings.ShowOrbs || document.Find(id) is not { Visible: true }) { window.Close(); _orbs.Remove(id); }
-        if (settings.ShowOrbs)
-            foreach (var definition in document.Orbs.Where(o => o.Visible))
+        if (_syncingOrbs)
+        {
+            _repositionOrbsRequested |= repositionExisting;
+            return;
+        }
+
+        _syncingOrbs = true;
+        _repositionOrbsRequested = repositionExisting;
+        try
+        {
+            var repeat = false;
+            do
             {
-                if (!_orbs.TryGetValue(definition.Id, out var window))
-                { window = new OrbWindow(this, definition); _orbs[definition.Id] = window; window.Show(); }
-                else window.Configure(definition);
-            }
-        Monitor.SetSubsets(document.Orbs.Select(o => o.TrackedSources).OfType<SourceSet>().Distinct().ToArray());
+                repeat = false;
+                var reposition = _repositionOrbsRequested;
+                _repositionOrbsRequested = false;
+                var settings = Settings.Current;
+                var document = settings.Orbs;
+                var screens = Main?.Screens.All ?? Array.Empty<Screen>();
+                var layout = LinuxOrbLayout.Resolve(document, LinuxOrbDisplays());
+                if (layout.Document != document)
+                {
+                    _repositionOrbsRequested |= reposition;
+                    Settings.Update(s => s with { Orbs = layout.Document });
+                    repeat = true;
+                    continue;
+                }
+
+                foreach (var (id, window) in _orbs.ToArray())
+                    if (!settings.ShowOrbs || document.Find(id) is not { Visible: true })
+                    { _orbs.Remove(id); window.Close(); }
+                if (settings.ShowOrbs)
+                    foreach (var definition in document.Orbs.Where(o => o.Visible))
+                    {
+                        if (!layout.Locations.TryGetValue(definition.Id, out var location)) continue;
+                        var screen = screens.FirstOrDefault(s => LinuxOrbLayout.Key(s) == location.Display)
+                            ?? Main?.Screens.Primary ?? screens.FirstOrDefault();
+                        if (screen is null) continue;
+                        if (!_orbs.TryGetValue(definition.Id, out var window))
+                        {
+                            window = new OrbWindow(this, definition);
+                            _orbs[definition.Id] = window;
+                            window.PlaceAt(location, screen, layout.Arrangement);
+                            window.Show();
+                        }
+                        else
+                        {
+                            var resized = window.Configure(definition);
+                            if (reposition || resized) window.PlaceAt(location, screen, layout.Arrangement);
+                        }
+                    }
+                Monitor.SetSubsets(document.Orbs.Select(o => o.TrackedSources).OfType<SourceSet>().Distinct().ToArray());
+            } while (repeat || _repositionOrbsRequested);
+        }
+        finally { _syncingOrbs = false; }
     }
     private void ApplyAppearance()
     {
