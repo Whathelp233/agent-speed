@@ -30,6 +30,9 @@ use the tray, GNOME extension or relaunch the application to reopen it. The
 For deterministic UI checks, `xvfb-run -a sh linux/scripts/smoke-test.sh` runs in
 fresh XDG directories and exports screenshots of the dashboard, history, settings
 and all five instruments. Screenshot paths are printed by the script.
+The history page uses the shared summary cards, calendar-day source stacks, average-speed line and mirrored traffic bars. A recorded single day (including zero usage) remains visible. Relative ranges follow local midnight; custom dates remain fixed. Loading and retry states preserve previously loaded history.
+
+GNOME label width is bounded and long values are ellipsized; the menu retains the full configured label and cost/traffic details. `node --test linux/tests/test_gnome_extension.mjs` checks long-label handling, D-Bus owner changes and disable/enable races. Layout was also checked in an isolated GNOME 46 session at normal and doubled text size.
 
 `dotnet run -c Release --project linux/tools/AgentSpeed.RenderBenchmark` measures
 warm CPU rendering and allocations for idle/active single-orb and five-orb scenes.

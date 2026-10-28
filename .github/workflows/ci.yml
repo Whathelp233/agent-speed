@@ -103,6 +103,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
@@ -120,6 +123,8 @@ jobs:
         run: xvfb-run -a sh linux/scripts/smoke-test.sh
       - name: Check shell scripts
         run: shellcheck install-linux.sh linux/scripts/*.sh linux/traffic-helper/build.sh linux/packaging/install-traffic-helper
+      - name: Test GNOME panel layout and connection lifecycle
+        run: node --test linux/tests/test_gnome_extension.mjs
       - name: Test Linux installer boundaries
         run: python3 linux/tests/test_installer.py
       - name: Build Debian package

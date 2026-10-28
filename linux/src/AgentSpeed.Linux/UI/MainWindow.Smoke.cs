@@ -202,11 +202,15 @@ internal sealed partial class MainWindow
             throw new InvalidOperationException($"History {metric} unit was '{_historyChartUnit.Text}', expected '{expectedUnit}'.");
         if (metric == HistoryChartMetric.Output && _historyChartUnit.Text == L("unit.tokS"))
             throw new InvalidOperationException("The daily output chart still uses a speed unit.");
-        if (_historyChart.Values.Count != _days.Count)
-            throw new InvalidOperationException($"History {metric} values do not match the day count.");
-        for (var i = 0; i < _days.Count; i++)
-            if (Math.Abs(_historyChart.Values[i] - expectedValue(_days[i])) > 1e-9)
-                throw new InvalidOperationException($"History {metric} value {i} no longer matches its daily semantics.");
+        var bars = _historyChart.Bars;
+        foreach (var day in _days)
+        {
+            var index = bars.Range.IndexOf(day.Day);
+            if (!bars.HasData(index)) throw new InvalidOperationException($"History {metric} lost a recorded day.");
+            var actual = bars.Total(index) + bars.TotalBelow(index);
+            if (Math.Abs(actual - expectedValue(day)) > .0001)
+                throw new InvalidOperationException($"History {metric} no longer matches daily semantics: {actual}.");
+        }
     }
 
     private void AssertHistoryChartMetrics()
@@ -214,12 +218,58 @@ internal sealed partial class MainWindow
         AssertHistoryMetric(HistoryChartMetric.Output, L(HistoryChartMetrics.TitleKey(HistoryChartMetric.Output)),
             L("history.summary.output"), day => day.Output);
         AssertHistoryMetric(HistoryChartMetric.Cost, L(HistoryChartMetrics.TitleKey(HistoryChartMetric.Cost)),
-            _app.Cost.Display.IsUsd ? _app.Cost.Display.Symbol : "US$",
-            day => (double)day.Cost.MicroUsd / 1_000_000);
+            _app.Cost.Display.Symbol,
+            day => new HistoryMoney(_app.Cost.Display).Value(day.Cost.MicroUsd));
         AssertHistoryMetric(HistoryChartMetric.Traffic, L(HistoryChartMetrics.TitleKey(HistoryChartMetric.Traffic)),
-            T("Daily network traffic"), day => (double)(day.Traffic?.Shown.Sum ?? 0));
+            "↓ / ↑", day => (double)(day.Traffic?.Shown.Sum ?? 0));
         AssertHistoryMetric(HistoryChartMetric.Output, L(HistoryChartMetrics.TitleKey(HistoryChartMetric.Output)),
             L("history.summary.output"), day => day.Output);
+    }
+
+    private async Task AssertHistoryRecoveryAsync()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        SelectHistoryRange(HistoryRangeKind.Today);
+        if (!_historyChart.HasData || _historyChart.Bars.Count != 1)
+            throw new InvalidOperationException("Today has usage but the single-day chart is empty.");
+        var layout = HistoryChart.CalculateLayout(_historyChart.Bars, 760, 240);
+        if (layout.Segments.Count == 0) throw new InvalidOperationException("The single-day chart has no visible bar.");
+        Capture("smoke-history-today");
+        RefreshHistoryForDay(today.AddDays(1));
+        if (_to.Text != HistoryRanges.FormatDay(today.AddDays(1)))
+            throw new InvalidOperationException("Today stopped following the local day after midnight.");
+        _from.Text = _to.Text = HistoryRanges.FormatDay(today.AddDays(-3));
+        RefreshHistoryForDay(today.AddDays(2));
+        if (_to.Text != HistoryRanges.FormatDay(today.AddDays(-3)))
+            throw new InvalidOperationException("A custom range was changed at midnight.");
+        SelectHistoryRange(HistoryRangeKind.Days30);
+        var beforeScopes = ThemeScopeCount;
+        for (var i = 0; i < 4; i++) RefreshHistory();
+        if (ThemeScopeCount != beforeScopes) throw new InvalidOperationException("History refresh retained old theme scopes.");
+        var preservedDays = _app.History.Days;
+        _app.History.Publish(HistoryState.Analyzing(.4, 4, 10));
+        await Task.Delay(80);
+        if (!_historyProgress.IsVisible || !_historyChart.HasData)
+            throw new InvalidOperationException("Analysis hid already available history or lost its progress state.");
+        _app.History.Publish(HistoryState.Failed("Synthetic retryable error"));
+        await Task.Delay(80);
+        if (!_historyChart.HasData || !_historyStatus.Text!.Contains(T("History could not be refreshed. Showing the last available data; use Refresh to retry.")))
+            throw new InvalidOperationException("A failed refresh discarded cached history or gave no retry guidance.");
+        _app.History.Publish(HistoryState.Ready(DateTimeOffset.Now), preservedDays);
+        await Task.Delay(80);
+        RefreshHistory();
+        _app.Settings.Update(settings => settings with { Appearance = AgentSpeed.Presentation.Settings.AppearanceMode.Light });
+        await Task.Delay(60);
+        this.GetLayoutManager()?.ExecuteLayoutPass();
+        if (_summaryViews.Any(view => view.Value.TextWrapping != TextWrapping.NoWrap))
+            throw new InvalidOperationException("History summary values can wrap into multiple lines.");
+        Capture("smoke-history-light");
+        Width = 780; Height = 560;
+        await Task.Delay(60);
+        Capture("smoke-history-compact");
+        Width = 1120; Height = 820;
+        _app.Settings.Update(settings => settings with { Appearance = AgentSpeed.Presentation.Settings.AppearanceMode.Dark });
+        await Task.Delay(60);
     }
 
     private async Task AssertLanguageKeepsHistoryFilterAsync()
@@ -373,13 +423,16 @@ internal sealed partial class MainWindow
         await Task.Delay(100);
         _historySource.SelectedIndex = 0;
         await PublishShowcaseAsync();
-        if (string.IsNullOrEmpty(_historyChart.StartLabel) || string.IsNullOrEmpty(_historyChart.EndLabel))
-            throw new InvalidOperationException("The history chart lost its date labels.");
-        if (_historyChart.Values.Any(value => !double.IsFinite(value)))
-            throw new InvalidOperationException("The history chart contains a non-finite value.");
-        if (_historyChart.Values.Count != _days.Count)
+        var historyBars = _historyChart.Bars;
+        if (historyBars.Count != historyBars.Range.DayCount)
+            throw new InvalidOperationException("The history chart lost its calendar date slots.");
+        for (var index = 0; index < historyBars.Count; index++)
+            if (!double.IsFinite(historyBars.Total(index)))
+                throw new InvalidOperationException("The history chart contains a non-finite value.");
+        if (_days.Any(day => !historyBars.HasData(historyBars.Range.IndexOf(day.Day))))
             throw new InvalidOperationException("The history chart and the day list disagree.");
         AssertHistoryChartMetrics();
+        await AssertHistoryRecoveryAsync();
         var day = _dayRows.First();
         day.Value.IsExpanded = true;
         RefreshHistory();

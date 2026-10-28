@@ -95,7 +95,7 @@ internal sealed partial class MainWindow : Window
     private ComboBox? _historyMetricPicker;
     private readonly TextBox _from = new() { Width = 125, PlaceholderText = "YYYY-MM-DD" };
     private readonly TextBox _to = new() { Width = 125, PlaceholderText = "YYYY-MM-DD" };
-    private readonly LineChart _historyChart = new() { Height = 145 };
+    private readonly HistoryChart _historyChart = new() { Height = 240 };
     private readonly StackPanel _historyRows = Stack();
     private readonly List<(Button Button, string English)> _historyButtons = [];
     private readonly Dictionary<DateOnly, Expander> _dayRows = [];
@@ -234,10 +234,15 @@ internal sealed partial class MainWindow : Window
             if (IsVisible && !_liveRefresh.IsEnabled) _liveRefresh.Start();
         };
         _app.History.Changed += HistoryChanged;
+        _app.Traffic.Hub.DaysChanged += HistoryChanged;
         _app.Loc.LanguageChanged += (_, _) => ApplyLanguage();
         _historyRefresh.Tick += (_, _) =>
         {
-            if (IsVisible && _page == "history" && LiveDay.CanRefreshQuietly(_app.History.State)) _app.History.Refresh();
+            if (IsVisible && _page == "history")
+            {
+                RefreshHistory(); // Resolve relative ranges again after midnight and on resume.
+                if (LiveDay.CanRefreshQuietly(_app.History.State)) _app.History.Refresh();
+            }
         };
         _historyRefresh.Start();
         Closed += (_, _) => { _historyRefresh.Stop(); _liveRefresh.Stop(); };
@@ -465,213 +470,8 @@ internal sealed partial class MainWindow : Window
         _chart.FillAlpha = p.HighContrast ? .35 : p.Dark ? .24 : .18;
         _historyChart.GridBrush = p.Brush(p.ChartGrid);
         _historyChart.MutedBrush = p.SecondaryBrush;
-        _historyChart.FillAlpha = p.HighContrast ? .35 : p.Dark ? .24 : .18;
-    }
-
-    private void AddHistoryButton(WrapPanel row, string english, Action action)
-    {
-        var button = Button(T(english), action);
-        _historyButtons.Add((button, english));
-        row.Children.Add(button);
-    }
-
-    private void HistoryChanged(object? sender, EventArgs e) => RefreshHistory();
-
-    private void BuildHistory()
-    {
-        _historySource.ItemsSource = new[] { T("All sources") }
-            .Concat(Enum.GetValues<SourceKind>().Select(k => L(DisplayText.SourceKey(k)))).ToArray();
-        _historySource.SelectedIndex = 0;
-        _from.Text = DateTime.Today.AddDays(-29).ToString("yyyy-MM-dd");
-        _to.Text = DateTime.Today.ToString("yyyy-MM-dd");
-        _historySource.SelectionChanged += (_, _) =>
-        {
-            if (_updatingHistorySources) return;
-            _selectedSource = _historySource.SelectedIndex > 0 ? (SourceKind)(_historySource.SelectedIndex - 1) : null;
-            RefreshHistory();
-        };
-        _from.KeyDown += (_, e) => { if (e.Key == Key.Enter) { RefreshHistory(); e.Handled = true; } };
-        _to.KeyDown += (_, e) => { if (e.Key == Key.Enter) { RefreshHistory(); e.Handled = true; } };
-        StyledInput(_from);
-        StyledInput(_to);
-
-        _historyTitle = ThemedText(L("history.title"), 26, TextRole.Primary);
-        _historyTitle.FontWeight = FontWeight.SemiBold;
-        _historySubtitle = ThemedText(T("Daily output, cost and traffic from local records."), 12, TextRole.Secondary);
-        var toolbar = Row(_historySource, _from, _to, HistoryMetricPicker());
-        var filters = Row();
-        AddHistoryButton(filters, "Apply dates", RefreshHistory);
-        AddHistoryButton(filters, "Today", () => Dates(0));
-        AddHistoryButton(filters, "Yesterday", () =>
-        {
-            _from.Text = _to.Text = DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd");
-            RefreshHistory();
-        });
-        AddHistoryButton(filters, "All", () =>
-        {
-            _from.Text = "2000-01-01";
-            _to.Text = DateTime.Today.ToString("yyyy-MM-dd");
-            RefreshHistory();
-        });
-        AddHistoryButton(filters, "CSV", () => _ = Export(false));
-        AddHistoryButton(filters, "Modes CSV", () => _ = Export(true));
-        AddHistoryButton(filters, "Refresh", _app.History.Refresh);
-
-        _historyStatus = ThemedText("", 12, TextRole.Secondary);
-        _historyChartTitle = ThemedText("", 15, TextRole.Primary);
-        _historyChartTitle.FontWeight = FontWeight.SemiBold;
-        _historyChartUnit = ThemedText("", 11, TextRole.Secondary);
-        var chartHeader = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
-        chartHeader.Children.Add(_historyChartTitle);
-        Grid.SetColumn(_historyChartUnit, 1);
-        chartHeader.Children.Add(_historyChartUnit);
-        var chartCard = Card(Stack(chartHeader, _historyChart));
-        _historyPage = Stack(
-            Stack(_historyTitle, _historySubtitle),
-            Card(Stack(toolbar, filters)),
-            _historyStatus,
-            chartCard,
-            _historyRows);
-        _historyPage.Margin = new Thickness(0, 0, 0, 28);
-        _theme.On(ApplyChartTheme);
-    }
-
-    private ComboBox HistoryMetricPicker()
-    {
-        var combo = new ComboBox
-        {
-            ItemsSource = Enum.GetValues<HistoryChartMetric>(),
-            SelectedItem = _historyMetric,
-            MinWidth = 155,
-        };
-        combo.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<object>((value, _) => Text(Choice(value), 14));
-        combo.SelectionChanged += (_, _) =>
-        {
-            if (combo.SelectedItem is HistoryChartMetric metric)
-            {
-                _historyMetric = metric;
-                RefreshHistory();
-            }
-        };
-        ToolTip.SetTip(combo, T("Chart"));
-        _historyMetricPicker = combo;
-        return combo;
-    }
-
-    private void Dates(int days)
-    {
-        _from.Text = DateTime.Today.AddDays(-days).ToString("yyyy-MM-dd");
-        _to.Text = DateTime.Today.ToString("yyyy-MM-dd");
-        RefreshHistory();
-    }
-
-    private void RefreshHistory()
-    {
-        _historyRangeValid = false;
-        if (!DateOnly.TryParseExact(_from.Text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var start)
-            || !DateOnly.TryParseExact(_to.Text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var end))
-        {
-            Set(_historyStatus, T("Use YYYY-MM-DD dates."));
-            return;
-        }
-        if (end < start)
-        {
-            Set(_historyStatus, T("End date must be on or after start date."));
-            return;
-        }
-        _historyRangeValid = true;
-        var range = new DayRange(start, end);
-        var cost = _app.Settings.Current.Cost;
-        var options = new HistoryCostOptions(cost.Subscriptions, cost.HistoryIncludeSubscriptions ?? cost.IncludeSubscriptions);
-        var rows = HistoryAggregator.Daily(_app.History.Days, _selectedSource, range, options.Excluded(_selectedSource))
-            .ToDictionary(d => d.Day);
-        var traffic = new HistoryTraffic(_app.Traffic.Hub.Days, _app.Traffic.Hub.Since, _app.Settings.Current.Traffic.IncludeTools);
-        foreach (var (day, value) in traffic.Days(range, _selectedSource, DateOnly.FromDateTime(DateTime.Today), DateTimeOffset.Now))
-            rows[day] = (rows.GetValueOrDefault(day) ?? DaySummary.TrafficOnly(day)) with { Traffic = value };
-        _days = rows.Values.OrderBy(d => d.Day).ToArray();
-        var total = _days.Sum(d => d.Output);
-        Set(_historyStatus, $"{T(_app.History.State.Kind.ToString())}  ·  {_app.Loc.Format("win.history.days", _days.Count)}  ·  {total:N0} {L("history.summary.output")}");
-        _historyChart.Values = _days.Select(d => _historyMetric switch
-        {
-            HistoryChartMetric.Cost => (double)d.Cost.MicroUsd / 1_000_000,
-            HistoryChartMetric.Traffic => (double)(d.Traffic?.Shown.Sum ?? 0),
-            _ => d.Output,
-        }).ToArray();
-        _historyChart.StartLabel = _days.Count > 0 ? _days[0].Day.ToString("MM-dd", _app.Loc.Culture) : "";
-        _historyChart.EndLabel = _days.Count > 0 ? _days[^1].Day.ToString("MM-dd", _app.Loc.Culture) : "";
-        _historyChart.Unit = "";
-        _historyChart.TickFormat = _historyMetric switch
-        {
-            HistoryChartMetric.Traffic => v => TrafficFormat.Total((long)Math.Max(0, v)),
-            HistoryChartMetric.Cost => v => v.ToString("0.##", _app.Loc.Culture),
-            _ => v => SpeedFormat.Speed(v),
-        };
-        _historyChart.EmptyText = T("No data in this range");
-        Set(_historyChartTitle, L(HistoryChartMetrics.TitleKey(_historyMetric)));
-        Set(_historyChartUnit, _historyMetric switch
-        {
-            HistoryChartMetric.Cost => _app.Cost.Display.IsUsd ? _app.Cost.Display.Symbol : "US$",
-            HistoryChartMetric.Traffic => T("Daily network traffic"),
-            _ => L("history.summary.output"),
-        });
-        var source = _selectedSource;
-        var line = source is { } kind ? HeatPalette.SourceColor(kind) : HeatPalette.Sample(0.55);
-        _historyChart.LineBrush = _theme.Palette.Brush(Color.FromRgb(line.R8, line.G8, line.B8));
+        _historyChart.LineBrush = p.PrimaryBrush;
         _historyChart.InvalidateVisual();
-        foreach (var removed in _dayRows.Keys.Except(_days.Select(d => d.Day)).ToArray())
-        {
-            _historyRows.Children.Remove(_dayRows[removed]);
-            _dayRows.Remove(removed);
-        }
-        foreach (var day in _days.Reverse())
-        {
-            var money = new HistoryMoney(_app.Cost.Display);
-            var title = $"{day.Day:yyyy-MM-dd}    {money.Text(day.Cost, L("cost.subscription.tag"))}\n"
-                + $"{day.Output:N0} {L("today.output")}  ·  {day.Input:N0} {L("today.input")}  ·  {day.Requests:N0} {L("today.requests")}\n"
-                + $"{L("today.average")} / {L("today.peak")}: {day.AverageSpeed:0.0} / {day.Peak:0.0} tok/s";
-            if (day.Traffic is { } network) title += $"\n↓ {TrafficFormat.Total(network.Shown.Rx)}   ↑ {TrafficFormat.Total(network.Shown.Tx)}";
-            var modelText = string.Join("\n", _app.History.Days
-                .Where(d => d.Day == day.Day.ToString("yyyy-MM-dd") && (_selectedSource is null || d.Source == _selectedSource))
-                .SelectMany(d => d.Models.Select(m => $"{d.Source} · {m.Model}  {m.Output:N0} output · {m.AverageSpeed:0.0} tok/s")));
-            var modes = string.Join("\n", day.Modes.Select(m => $"{m.Model} · {m.Mode} · {m.Requests} requests"));
-            if (!_dayRows.TryGetValue(day.Day, out var row))
-            {
-                row = new Expander
-                {
-                    Header = Text("", 13),
-                    Content = Text("", 12),
-                    HorizontalAlignment = HorizontalAlignment.Stretch,
-                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                };
-                _dayRows.Add(day.Day, row);
-            }
-            ((TextBlock)row.Header!).Text = title;
-            ((TextBlock)row.Content!).Text = modelText + "\n" + modes;
-        }
-        var ordered = _days.Reverse().Select(d => _dayRows[d.Day]).ToArray();
-        if (!_historyRows.Children.SequenceEqual(ordered))
-        {
-            _historyRows.Children.Clear();
-            foreach (var row in ordered) _historyRows.Children.Add(row);
-        }
-    }
-
-    private async Task Export(bool modes)
-    {
-        RefreshHistory();
-        if (!_historyRangeValid) return;
-        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            SuggestedFileName = modes ? "agent-speed-modes.csv" : "agent-speed-history.csv",
-            FileTypeChoices = [new("CSV") { Patterns = ["*.csv"] }],
-        });
-        if (file is null) return;
-        await using var output = await file.OpenWriteAsync();
-        output.SetLength(0);
-        var text = modes
-            ? ExecutionModeCsv.Build(_days)
-            : HistoryCsv.Build(_days, _selectedSource, new HistoryMoney(_app.Cost.Display), _app.Traffic.Hub.Since is not null);
-        await output.WriteAsync(Encoding.UTF8.GetBytes(text));
     }
 
     private Control BuildSettings()

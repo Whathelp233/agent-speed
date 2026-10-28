@@ -952,5 +952,23 @@
     "zh-Hans": "来自本地记录的实时速度、用量与来源。",
     "zh-Hant": "來自本機記錄的即時速度、用量與來源。",
     "ja": "ローカル記録に基づく速度・使用量・ソース。"
+  },
+  "Loading history…": {
+    "en": "Loading history…",
+    "zh-Hant": "正在載入歷史紀錄…",
+    "zh-Hans": "正在加载历史记录…",
+    "ja": "履歴を読み込み中…"
+  },
+  "History could not be refreshed. Showing the last available data; use Refresh to retry.": {
+    "en": "History could not be refreshed. Showing the last available data; use Refresh to retry.",
+    "zh-Hant": "無法更新歷史紀錄。顯示上次可用的資料，請按重新整理以重試。",
+    "zh-Hans": "无法更新历史记录。显示上次可用的数据，请点击刷新重试。",
+    "ja": "履歴を更新できませんでした。前回のデータを表示しています。更新ボタンで再試行してください。"
+  },
+  "Choose a date range of 100 years or less.": {
+    "en": "Choose a date range of 100 years or less.",
+    "zh-Hant": "請選擇不超過 100 年的日期範圍。",
+    "zh-Hans": "请选择不超过 100 年的日期范围。",
+    "ja": "100年以内の日付範囲を選択してください。"
   }
 }

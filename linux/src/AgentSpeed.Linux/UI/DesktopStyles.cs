@@ -351,8 +351,9 @@ internal sealed class DesktopButton : Button
                 foreground = _hover ? p.TextPrimary : p.TextSecondary;
                 break;
             case DesktopButtonKind.Tool:
-                background = _hover ? p.ButtonHover : Colors.Transparent;
-                foreground = _hover ? p.TextPrimary : p.TextMuted;
+                background = Selected ? p.NavSelected : _hover ? p.ButtonHover : Colors.Transparent;
+                foreground = Selected || _hover ? p.TextPrimary : p.TextMuted;
+                if (Selected) { border = p.Accent; thickness = new Thickness(1); }
                 break;
             case DesktopButtonKind.Ghost:
                 background = _hover ? p.ButtonHover : Colors.Transparent;
