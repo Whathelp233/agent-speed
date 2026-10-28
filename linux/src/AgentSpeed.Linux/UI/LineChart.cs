@@ -16,6 +16,9 @@ internal sealed class LineChart : Control
 
     public IReadOnlyList<double> Values { get; set; } = [];
 
+    /// <summary>Compact summary series keep missing dates as gaps, with no axes or reserved axis gutter.</summary>
+    public bool Sparkline { get; set; }
+
     public IBrush LineBrush { get; set; } = new SolidColorBrush(Color.Parse("#2DD4BF"));
 
     public IBrush GridBrush { get; set; } = new SolidColorBrush(Color.Parse("#263246"));
@@ -60,12 +63,41 @@ internal sealed class LineChart : Control
         return clean;
     }
 
+    internal static IReadOnlyList<Point[]> SparklineSegments(IReadOnlyList<double> values, Size size)
+    {
+        if (values.Count == 0 || !double.IsFinite(size.Width) || !double.IsFinite(size.Height)
+            || size.Width < 4 || size.Height < 4) return [];
+        var samples = values.Select(v => double.IsFinite(v) && v >= 0 ? (double?)v : null).ToArray();
+        var max = SafeScaleMax(values);
+        var plot = new Rect(2, 2, size.Width - 4, size.Height - 4);
+        return HistoryChartMath.Runs(samples).Select(run => Enumerable.Range(run.Start, run.Count)
+            .Select(index => new Point(values.Count == 1 ? plot.Center.X : plot.Left + plot.Width * index / (values.Count - 1),
+                plot.Bottom - Math.Clamp(values[index] / max, 0, 1) * plot.Height)).ToArray()).ToArray();
+    }
+
     public override void Render(DrawingContext context)
     {
         base.Render(context);
         var width = Bounds.Width;
         var height = Bounds.Height;
         if (!double.IsFinite(width) || !double.IsFinite(height) || width <= 8 || height <= 8) return;
+
+        if (Sparkline)
+        {
+            foreach (var segment in SparklineSegments(Values, Bounds.Size))
+            {
+                if (segment.Length == 1) { context.DrawEllipse(LineBrush, null, segment[0], 1.5, 1.5); continue; }
+                var sparkGeometry = new StreamGeometry();
+                using (var path = sparkGeometry.Open())
+                {
+                    path.BeginFigure(segment[0], false);
+                    foreach (var point in segment.Skip(1)) path.LineTo(point);
+                    path.EndFigure(false);
+                }
+                context.DrawGeometry(null, new Pen(LineBrush, 1.5), sparkGeometry);
+            }
+            return;
+        }
 
         var values = Sanitize(Values);
         var dataMax = values.Length == 0 ? 0 : values.Max();

@@ -255,6 +255,16 @@ internal sealed partial class MainWindow
         await Task.Delay(80);
         if (!_historyChart.HasData || !_historyStatus.Text!.Contains(T("History could not be refreshed. Showing the last available data; use Refresh to retry.")))
             throw new InvalidOperationException("A failed refresh discarded cached history or gave no retry guidance.");
+        _app.History.Publish(HistoryState.Failed("Synthetic error without cached history"), []);
+        await Task.Delay(80);
+        var retry = T("History could not be loaded. Use Refresh to retry.");
+        if (_historyChart.HasData || _historyChart.EmptyText != retry || !_historyStatus.Text!.Contains(retry))
+            throw new InvalidOperationException("A load failure was presented as genuinely empty history.");
+        _from.Text = _to.Text = "0001-01-01";
+        RefreshHistory();
+        if (!_historyRangeValid || _historyChart.Bars.Range != DayRange.Single(DateOnly.MinValue))
+            throw new InvalidOperationException("A valid boundary date could not be displayed safely.");
+        SelectHistoryRange(HistoryRangeKind.Days30);
         _app.History.Publish(HistoryState.Ready(DateTimeOffset.Now), preservedDays);
         await Task.Delay(80);
         RefreshHistory();

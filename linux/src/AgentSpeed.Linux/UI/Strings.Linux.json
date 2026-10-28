@@ -970,5 +970,11 @@
     "zh-Hant": "請選擇不超過 100 年的日期範圍。",
     "zh-Hans": "请选择不超过 100 年的日期范围。",
     "ja": "100年以内の日付範囲を選択してください。"
+  },
+  "History could not be loaded. Use Refresh to retry.": {
+    "en": "History could not be loaded. Use Refresh to retry.",
+    "zh-Hant": "無法載入歷史紀錄，請按重新整理以重試。",
+    "zh-Hans": "无法加载历史记录，请点击刷新重试。",
+    "ja": "履歴を読み込めませんでした。更新ボタンで再試行してください。"
   }
 }

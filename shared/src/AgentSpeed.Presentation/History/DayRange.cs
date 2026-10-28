@@ -90,7 +90,7 @@ public static class HistoryRanges
         return new DayRange(end.AddDays(-(range.DayCount - 1)), end);
     }
 
-    /// <summary>The days the summary sparklines cover: the range itself, or the 7 days ending on a single day.</summary>
+    /// <summary>The range itself, or up to 7 days ending on a single day, bounded by the start of the calendar.</summary>
     public static DayRange SparkRange(DayRange range) =>
         range.IsSingleDay ? Last(range.Start, SingleDaySparkDays) : range;
 
@@ -113,7 +113,8 @@ public static class HistoryRanges
 
     public static string FormatDay(DateOnly day) => day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
-    private static DayRange Last(DateOnly today, int days) => new(today.AddDays(-(days - 1)), today);
+    private static DayRange Last(DateOnly today, int days) =>
+        new(DateOnly.FromDayNumber(Math.Max(0, today.DayNumber - (days - 1))), today);
 
     private static DateOnly Bound(DateOnly day, DateOnly minimum, DateOnly maximum) =>
         day < minimum ? minimum : day > maximum ? maximum : day;

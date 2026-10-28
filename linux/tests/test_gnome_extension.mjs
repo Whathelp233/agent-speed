@@ -198,6 +198,17 @@ test('cancels lost-owner requests, ignores stale replies, and survives disable/e
     assert.equal(extension._label.text, '8.5 tok/s');
 
     extension._poll();
+    const replacedOwnerRequest = runtime.proxy.calls.at(-1);
+    runtime.proxy.setOwner(':1.44');
+    assert.equal(replacedOwnerRequest.cancellable.cancelled, true);
+    const replacementRequest = runtime.proxy.calls.at(-1);
+    assert.notEqual(replacementRequest, replacedOwnerRequest);
+    replacedOwnerRequest.callback([JSON.stringify({schema: 1, speed: 999, label: 'old owner'})], null);
+    assert.notEqual(extension._label.text, 'old owner');
+    replacementRequest.callback([JSON.stringify({schema: 1, speed: 9, label: 'new owner'})], null);
+    assert.equal(extension._label.text, 'new owner');
+
+    extension._poll();
     const pendingBeforeDisable = runtime.proxy.calls.at(-1);
     const oldProxy = runtime.proxy;
     extension.disable();

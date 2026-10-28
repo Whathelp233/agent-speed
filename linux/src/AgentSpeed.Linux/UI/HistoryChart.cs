@@ -12,6 +12,7 @@ namespace AgentSpeed.Linux.UI;
 internal readonly record struct HistoryChartSegment(int DayIndex, int SourceIndex, bool Below, Rect Bounds);
 
 internal readonly record struct HistoryChartOutline(int DayIndex, Rect Bounds);
+internal readonly record struct HistorySpeedPoint(int DayIndex, Point Point, bool ConnectToPrevious);
 
 /// <summary>Finite, testable geometry used by the native Avalonia history chart.</summary>
 internal sealed record HistoryChartLayout(
@@ -28,7 +29,8 @@ internal sealed record HistoryChartLayout(
     IReadOnlyList<Rect> ZeroMarkers,
     IReadOnlyList<HistoryChartOutline> Outlines,
     Rect NotRecordedBand,
-    bool ShowSpeed);
+    bool ShowSpeed,
+    IReadOnlyList<HistorySpeedPoint> SpeedPoints);
 
 /// <summary>
 /// Daily stacked usage bars with an average-speed line, or mirrored network traffic bars. Data and date-range rules
@@ -205,8 +207,22 @@ internal sealed class HistoryChart : Control
 
         var bandWidth = plot.Width * Math.Clamp(bars.NotRecordedDays, 0, bars.Count) / Math.Max(1, bars.Count);
         var notRecordedBand = new Rect(plot.Left, plot.Top, bandWidth, plot.Height);
+        var speedPoints = new List<HistorySpeedPoint>();
+        if (speedTicks is { Max: > 0 } axis)
+        {
+            var previous = false;
+            for (var day = 0; day < bars.Count; day++)
+            {
+                if (bars.Speed(day) is not { } value || !double.IsFinite(value) || value < 0)
+                { previous = false; continue; }
+                var point = new Point(plot.Left + slots.Center(day),
+                    plot.Bottom - Math.Clamp(value / axis.Max, 0, 1) * plot.Height);
+                speedPoints.Add(new HistorySpeedPoint(day, point, previous));
+                previous = true;
+            }
+        }
         return new HistoryChartLayout(plot, slots, zeroY, scaleAbove, scaleBelow, aboveTicks, belowTicks, speedTicks,
-            present, segments, zeroMarkers, outlines, notRecordedBand, showSpeed);
+            present, segments, zeroMarkers, outlines, notRecordedBand, showSpeed, speedPoints);
     }
 
     public override void Render(DrawingContext context)
@@ -282,7 +298,7 @@ internal sealed class HistoryChart : Control
 
             if (layout.SpeedTicks is { } speed && i <= speed.Intervals)
             {
-                DrawLabel(context, FormatTick(speed.Value(i)), new Point(layout.Plot.Right + 7, y), 10,
+                DrawLabel(context, FormatSpeedTick(speed.Value(i)), new Point(layout.Plot.Right + 7, y), 10,
                     MutedBrush, centerVertically: true);
             }
         }
@@ -312,6 +328,8 @@ internal sealed class HistoryChart : Control
     private string FormatTick(double value) => TickFormat is { } format
         ? format(value)
         : value.ToString("0.##", CultureInfo.CurrentUICulture);
+
+    internal static string FormatSpeedTick(double value) => SpeedFormat.Speed(value);
 
     private void DrawMonthMarks(DrawingContext context, HistoryBars bars, HistoryChartLayout layout)
     {
@@ -410,29 +428,13 @@ internal sealed class HistoryChart : Control
 
     private void DrawSpeed(DrawingContext context, HistoryBars bars, HistoryChartLayout layout)
     {
-        var speedScale = layout.SpeedTicks?.Max ?? 0;
-        if (speedScale <= 0 || !double.IsFinite(speedScale)) return;
-        var runs = HistoryChartMath.Runs(bars.Speeds);
         var linePen = new Pen(LineBrush, 1.7, lineCap: PenLineCap.Round, lineJoin: PenLineJoin.Round);
-        foreach (var (start, count) in runs)
+        Point? previous = null;
+        foreach (var sample in layout.SpeedPoints)
         {
-            Point? previous = null;
-            for (var i = start; i < start + count; i++)
-            {
-                var speed = bars.Speed(i);
-                if (speed is not { } value || !double.IsFinite(value) || value <= 0)
-                {
-                    previous = null;
-                    continue;
-                }
-
-                var x = layout.Plot.Left + layout.Slots.Center(i);
-                var y = layout.Plot.Bottom - Math.Clamp(value / speedScale, 0, 1) * layout.Plot.Height;
-                var point = new Point(x, y);
-                if (previous is { } from) context.DrawLine(linePen, from, point);
-                context.DrawEllipse(LineBrush, null, point, 3, 3);
-                previous = point;
-            }
+            if (sample.ConnectToPrevious && previous is { } from) context.DrawLine(linePen, from, sample.Point);
+            context.DrawEllipse(LineBrush, null, sample.Point, 3, 3);
+            previous = sample.Point;
         }
     }
 
@@ -455,7 +457,7 @@ internal sealed class HistoryChart : Control
         var amountFormat = bars.Metric == HistoryChartMetric.Cost ? "N2" : "N0";
         var amount = bars.Total(index).ToString(amountFormat, CultureInfo.CurrentUICulture);
         var text = $"{day}\n{amount}{unit}";
-        if (bars.Metric == HistoryChartMetric.Output && bars.Speed(index) is { } speed && double.IsFinite(speed) && speed > 0)
+        if (bars.Metric == HistoryChartMetric.Output && bars.Speed(index) is { } speed && double.IsFinite(speed) && speed >= 0)
         {
             text += $"\n{SpeedFormat.Speed(speed)} tok/s";
         }

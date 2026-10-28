@@ -5,6 +5,18 @@ namespace AgentSpeed.Presentation.Tests;
 
 public class HistoryRangeTests
 {
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public void SparkRangeAtCalendarBoundaryKeepsValidDates(int day)
+    {
+        var selected = new DateOnly(1, 1, day);
+        var spark = HistoryRanges.SparkRange(DayRange.Single(selected));
+        Assert.Equal(DateOnly.MinValue, spark.Start);
+        Assert.Equal(selected, spark.End);
+        Assert.Equal(day, spark.DayCount);
+    }
+
     [Fact]
     public void ConstructorOrdersTheEnds()
     {

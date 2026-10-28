@@ -1,11 +1,42 @@
 using AgentSpeed.Core.IO;
 using AgentSpeed.Core.Reporting;
 using AgentSpeed.Core.Traffic.Linux;
+using System.Runtime.Versioning;
 
 namespace AgentSpeed.Core.Tests;
 
 public sealed class LinuxPlatformTests
 {
+    [Theory]
+    [InlineData("OTHER 1\nEND\n")]
+    [InlineData("AGENT_SPEED_TRAFFIC_1 1\n42 100 5 6\n")]
+    [InlineData("AGENT_SPEED_TRAFFIC_1 1\n42 100 -5 6\nEND\n")]
+    [InlineData("AGENT_SPEED_TRAFFIC_1 1\ninvalid row\nEND\n")]
+    [SupportedOSPlatform("linux")]
+    public void MalformedHelperResponsesCannotBePublishedAsSamples(string message)
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var rows = new List<AgentSpeed.Core.Traffic.Engine.CounterRow>();
+        Assert.Throws<InvalidDataException>(() => HelperSampler.ReadSample(new StringReader(message), rows));
+    }
+
+    [Fact]
+    [SupportedOSPlatform("linux")]
+    public void HelperResponseNeedsABoundedLineAndCompleteTerminator()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var rows = new List<AgentSpeed.Core.Traffic.Engine.CounterRow>();
+        Assert.Throws<InvalidDataException>(() => HelperSampler.ReadSample(new StringReader(new string('x', 257)), rows));
+        var epoch = HelperSampler.ReadSample(new StringReader("AGENT_SPEED_TRAFFIC_1 123\n42 100 5 6\nEND\n"), rows);
+        Assert.Equal("123", epoch);
+        var row = Assert.Single(rows);
+        Assert.Equal(42, row.Identity.Pid);
+        Assert.Equal(5, row.Counter.Rx);
+        Assert.Equal(6, row.Counter.Tx);
+        Assert.Equal("124", HelperSampler.ReadSample(new StringReader("AGENT_SPEED_TRAFFIC_1 124\nEND\n"), rows));
+        Assert.Empty(rows);
+    }
+
     [Fact]
     public async Task HelperRejectsAnUnprivilegedImpersonator()
     {

@@ -91,7 +91,7 @@ internal sealed partial class MainWindow
             var note = ThemedText("", 11, TextRole.Secondary);
             note.TextWrapping = TextWrapping.NoWrap;
             note.TextTrimming = TextTrimming.CharacterEllipsis;
-            var spark = new LineChart { Height = 30 };
+            var spark = new LineChart { Height = 30, Sparkline = true };
             var body = Stack(label, value, spark, note); body.Spacing = 6;
             var card = Inset(body, new Thickness(12));
             _summaryViews.Add((card, label, value, note, spark));
@@ -210,8 +210,13 @@ internal sealed partial class MainWindow
             HistoryChartMetric.Cost => v => v.ToString("0.##", _app.Loc.Culture),
             _ => v => SpeedFormat.Tokens((long)Math.Max(0, v)),
         };
-        _historyChart.EmptyText = _app.History.State.Kind == HistoryStateKind.Analyzing ? HistoryText.Analyzing(_app.History.State.Progress, _app.Loc)
-            : _app.History.State.Kind == HistoryStateKind.NotLoaded ? T("Loading history…") : T("No data in this range");
+        _historyChart.EmptyText = _app.History.State.Kind switch
+        {
+            HistoryStateKind.Analyzing => HistoryText.Analyzing(_app.History.State.Progress, _app.Loc),
+            HistoryStateKind.NotLoaded => T("Loading history…"),
+            HistoryStateKind.Failed => T("History could not be loaded. Use Refresh to retry."),
+            _ => T("No data in this range"),
+        };
         Set(_historyChartTitle, L(HistoryChartMetrics.TitleKey(_historyMetric)));
         Set(_historyChartUnit, _historyMetric switch
         { HistoryChartMetric.Cost => money.Symbol, HistoryChartMetric.Traffic => "↓ / ↑", _ => L("history.summary.output") });
@@ -253,7 +258,9 @@ internal sealed partial class MainWindow
         {
             HistoryStateKind.NotLoaded => T("Loading history…"),
             HistoryStateKind.Analyzing => HistoryText.Analyzing(state.Progress, _app.Loc) + " · " + HistoryText.AnalyzingFiles(state.FilesDone, state.FilesTotal, _app.Loc),
-            HistoryStateKind.Failed => T("History could not be refreshed. Showing the last available data; use Refresh to retry."),
+            HistoryStateKind.Failed => _days.Count > 0
+                ? T("History could not be refreshed. Showing the last available data; use Refresh to retry.")
+                : T("History could not be loaded. Use Refresh to retry."),
             _ => state.UpdatedAt is { } at ? HistoryText.Updated(at, DateTimeOffset.Now, _app.Loc) : T("Ready"),
         };
         Set(_historyStatus, status + "  ·  " + HistoryText.Days(_days.Count, _app.Loc));
