@@ -1,4 +1,5 @@
 using AgentSpeed.Core;
+using AgentSpeed.Core.Traffic;
 using AgentSpeed.Presentation.History;
 using AgentSpeed.Linux.Platform;
 using Avalonia;
@@ -97,6 +98,42 @@ internal sealed partial class MainWindow
             if (_app.Speed.Snapshot.Sources.Count > 5) return;
         }
         throw new InvalidOperationException("The synthetic dashboard snapshot did not reach the UI hub.");
+    }
+
+    private async Task AssertNetworkStatusRefreshAsync()
+    {
+        SelectPage("settings");
+        _settingsTabs!.SelectedIndex = 5;
+        var status = _networkStatus ?? throw new InvalidOperationException("The network status control was not built.");
+        var original = _app.Traffic.Hub.Snapshot;
+        try
+        {
+            _app.Traffic.Hub.Publish(original with
+            {
+                Enabled = true,
+                ProcessState = ProcessTrafficState.Running(1),
+                ProcessError = null,
+            });
+            await Task.Delay(140);
+            if (!ReferenceEquals(status, _networkStatus) || !status.Text!.Contains("Running"))
+                throw new InvalidOperationException("The network process status did not refresh in place while settings was open.");
+
+            const string error = "Synthetic sampler failure";
+            _app.Traffic.Hub.Publish(original with
+            {
+                Enabled = true,
+                ProcessState = ProcessTrafficState.Unavailable(TrafficUnavailableReason.Sampler),
+                ProcessError = error,
+            });
+            await Task.Delay(140);
+            if (!status.Text!.Contains("Unavailable") || !status.Text.Contains(error))
+                throw new InvalidOperationException("The network process error did not refresh while settings was open.");
+        }
+        finally
+        {
+            _app.Traffic.Hub.Publish(original);
+            await Task.Delay(140);
+        }
     }
 
     private void PublishSourceGroupingData(bool produced)
@@ -570,6 +607,7 @@ internal sealed partial class MainWindow
                     throw new InvalidOperationException($"Settings tab {index} overflows horizontally.");
             Capture($"smoke-settings-{index}-compact");
         }
+        await AssertNetworkStatusRefreshAsync();
 
         Width = 1120; Height = 820;
         SelectPage("dashboard");

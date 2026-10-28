@@ -78,6 +78,7 @@ internal sealed partial class MainWindow : Window
     private TextBlock _historyChartTitle = null!;
     private TextBlock _historyChartUnit = null!;
     private TextBlock _historyStatus = null!;
+    private TextBlock? _networkStatus;
     private TextBlock _settingsSubtitle = null!;
     private TextBlock _brandSubtitle = null!;
     private HeroControl _hero = null!;
@@ -838,6 +839,8 @@ internal sealed partial class MainWindow : Window
     private Control Network()
     {
         var s = _app.Settings.Current;
+        _networkStatus = Text("", 12);
+        RefreshNetworkStatus();
         return Stack(
             Toggle(T("Allow network connections"), s.NetworkEnabled,
                 v => _app.Settings.Update(x => x with { NetworkEnabled = v })),
@@ -848,9 +851,16 @@ internal sealed partial class MainWindow : Window
                 v => _app.Settings.Update(x => x with { Traffic = x.Traffic with { IncludeTools = v } })),
             Pick(T("Traffic units"), Enum.GetValues<TrafficUnit>(), s.Traffic.Unit,
                 v => _app.Settings.Update(x => x with { Traffic = x.Traffic with { Unit = v } })),
-            Text($"{T("Process traffic")}: {_app.Traffic.Hub.Snapshot.ProcessState.Kind}\n{_app.Traffic.Hub.Snapshot.ProcessError}", 12),
+            _networkStatus,
             Button(T("Install traffic helper…"), () => _ = RunHelperInstaller()),
             Button(T("Retry sampler"), _app.Traffic.Monitor.Retry));
+    }
+
+    private void RefreshNetworkStatus()
+    {
+        if (_networkStatus is not { } status) return;
+        var snapshot = _app.Traffic.Hub.Snapshot;
+        status.Text = $"{T("Process traffic")}: {snapshot.ProcessState.Kind}\n{snapshot.ProcessError}";
     }
 
     private async Task RunHelperInstaller()

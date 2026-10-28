@@ -418,6 +418,7 @@ internal sealed partial class MainWindow
 
     private void RefreshLive()
     {
+        RefreshNetworkStatus();
         if (_dashboardTitle is null || _chart is null) return;
         var snapshot = _app.Speed.Snapshot;
         var settings = _app.Settings.Current;
