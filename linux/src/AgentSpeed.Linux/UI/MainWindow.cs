@@ -7,6 +7,7 @@ using AgentSpeed.Core.Traffic;
 using AgentSpeed.Linux.Platform;
 using AgentSpeed.Presentation.Colors;
 using AgentSpeed.Presentation.Formatting;
+using AgentSpeed.Presentation.Heat;
 using AgentSpeed.Presentation.Orb;
 using AgentSpeed.Presentation.History;
 using AgentSpeed.Presentation.Localization;
@@ -563,7 +564,8 @@ internal sealed partial class MainWindow : Window
         return LinuxText.Get(_app.Loc.LanguageCode, english);
     }
 
-    private Control Input(string label, string? value, Action<string> commit, Func<string, string?>? validate = null)
+    private Control Input(string label, string? value, Action<string> commit, Func<string, string?>? validate = null,
+        Func<string, string>? normalize = null)
     {
         var field = StyledInput(new TextBox { Text = value ?? "", MinWidth = 140 });
         var saved = (value ?? "").Trim();
@@ -572,6 +574,11 @@ internal sealed partial class MainWindow : Window
             var next = field.Text?.Trim() ?? "";
             if (validate?.Invoke(next) is { } error) { DataValidationErrors.SetError(field, new ArgumentException(error)); return; }
             DataValidationErrors.ClearErrors(field);
+            if (normalize is not null)
+            {
+                next = normalize(next);
+                field.Text = next;
+            }
             if (next == saved) return;
             saved = next;
             commit(next);
@@ -581,13 +588,16 @@ internal sealed partial class MainWindow : Window
         return Stack(Text(label, 12), field);
     }
 
-    private Control NumberInput(string label, double? value, Action<double?> commit, double min = 0, double max = double.MaxValue, bool allowEmpty = false)
+    private Control NumberInput(string label, double? value, Action<double?> commit, double min = 0,
+        double max = double.MaxValue, bool allowEmpty = false, Func<double, double>? normalize = null)
         => Input(label, value?.ToString(CultureInfo.InvariantCulture),
             v => commit(v.Length == 0 ? null : double.Parse(v, CultureInfo.InvariantCulture)),
             v => allowEmpty && v.Length == 0 ? null
                 : !double.TryParse(v, CultureInfo.InvariantCulture, out var n) || !double.IsFinite(n)
                     ? T("Enter a valid number.")
-                    : n < min || n > max ? T("The value is outside the allowed range.") : null);
+                    : n < min || n > max ? T("The value is outside the allowed range.") : null,
+            normalize is null ? null : v => v.Length == 0 ? v
+                : normalize(double.Parse(v, CultureInfo.InvariantCulture)).ToString(CultureInfo.InvariantCulture));
 
     private Control General()
     {
@@ -602,7 +612,9 @@ internal sealed partial class MainWindow : Window
                 _app.Settings.Update(x => x with { Metric = v });
                 Avalonia.Threading.Dispatcher.UIThread.Post(() => SelectPage("settings"));
             }),
-            NumberInput(T("Redline (tok/s)"), s.Redline, v => _app.Settings.Update(x => x.WithRedline(x.Metric, v!.Value)), min: 1),
+            NumberInput(T("Redline (tok/s)"), s.Redline, v => _app.Settings.Update(x => x.WithRedline(s.Metric, v!.Value)),
+                min: HeatMath.MinRedlineFor(s.Metric), max: HeatMath.MaxRedlineFor(s.Metric),
+                normalize: v => HeatMath.ClampRedline(s.Metric, v)),
             Pick(L("settings.effects.intensity"), Enum.GetValues<EffectsIntensity>(), s.Effects,
                 v => _app.Settings.Update(x => x with { Effects = v })),
             Toggle(L("settings.effects.peaks"), s.CelebratePeaks, v => _app.Settings.Update(x => x with { CelebratePeaks = v })),
@@ -704,7 +716,9 @@ internal sealed partial class MainWindow : Window
                     v => Change(d => d with { TitleTheme = v == "general" ? null : v })),
                 NumberInput(T("Redline (blank follows general)"),
                     s.Metric == SpeedMetric.Output ? o.RedlineOutput : o.RedlineTotal,
-                    v => Change(d => d.WithRedline(_app.Settings.Current.Metric, v)), min: 1, allowEmpty: true),
+                    v => Change(d => d.WithRedline(s.Metric, v)),
+                    min: HeatMath.MinRedlineFor(s.Metric), max: HeatMath.MaxRedlineFor(s.Metric), allowEmpty: true,
+                    normalize: v => HeatMath.ClampRedline(s.Metric, v)),
                 NumberInput(T("Size"), o.Size, v => Change(d => d.WithSize(v!.Value)), min: OrbStyles.MinSizeFor(o.Style), max: OrbStyles.MaxSize),
                 NumberInput(T("Opacity (0.4–1)"), o.Opacity, v => Change(d => d with { Opacity = v!.Value }), min: .4, max: 1),
                 Pick(T("Unit"), Enum.GetValues<OrbUnit>(), o.Unit, v => Change(d => d with { Unit = v })),

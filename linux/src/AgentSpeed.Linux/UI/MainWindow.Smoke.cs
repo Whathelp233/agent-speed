@@ -282,6 +282,33 @@ internal sealed partial class MainWindow
         await Task.Delay(60);
     }
 
+    private async Task AssertRedlineSettingsAsync()
+    {
+        var original = _app.Settings.Current;
+        try
+        {
+            foreach (var metric in new[] { SpeedMetric.Output, SpeedMetric.Total })
+            {
+                _app.Settings.Update(s => s with { Metric = metric });
+                var previous = _app.Settings.Current.Redline;
+                var general = (StackPanel)General();
+                await Task.Delay(40);
+                var input = (TextBox)((StackPanel)general.Children[3]).Children[1];
+                input.Text = "1";
+                input.RaiseEvent(new FocusChangedEventArgs(InputElement.LostFocusEvent));
+                if (!DataValidationErrors.GetHasErrors(input) || _app.Settings.Current.Redline != previous)
+                    throw new InvalidOperationException("A redline outside the shared metric bounds was accepted.");
+                input.Text = metric == SpeedMetric.Output ? "125" : "21555";
+                input.RaiseEvent(new FocusChangedEventArgs(InputElement.LostFocusEvent));
+                var expected = metric == SpeedMetric.Output ? 150d : 22000d;
+                if (_app.Settings.Current.Redline != expected || input.Text != expected.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                    throw new InvalidOperationException("The redline input disagrees with the normalized saved setting.");
+            }
+        }
+        finally { _app.Settings.Update(_ => original); }
+        SelectPage("history");
+    }
+
     private async Task AssertLanguageKeepsHistoryFilterAsync()
     {
         SelectPage("history");
@@ -472,6 +499,7 @@ internal sealed partial class MainWindow
         numeric.RaiseEvent(new FocusChangedEventArgs(InputElement.LostFocusEvent));
         if (DataValidationErrors.GetHasErrors(numeric) || commits != 1)
             throw new InvalidOperationException("Restoring the saved numeric value retained a stale validation error.");
+        await AssertRedlineSettingsAsync();
 
         await AssertLanguageKeepsHistoryFilterAsync();
         _historySource.SelectedIndex = 0;
