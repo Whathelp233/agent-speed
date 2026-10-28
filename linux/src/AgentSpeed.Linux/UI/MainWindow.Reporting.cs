@@ -19,7 +19,7 @@ internal sealed partial class MainWindow
     private bool _profileBusy;
     private readonly DispatcherTimer _pairingTimer = new() { Interval = TimeSpan.FromSeconds(3) };
     private readonly PairingRequestVersion _pairingPollVersion = new();
-    private readonly PairingRequestVersion _pairingServiceVersion = new();
+    private readonly PairingRequestVersion _pairingOperationVersion = new();
     private int _pairingMutations;
     private PairingServiceContext? _pairingServiceContext;
     private bool _reportSubscribed;
@@ -46,7 +46,7 @@ internal sealed partial class MainWindow
                 {
                     _pairingServiceContext = context;
                     _pairingPollVersion.Next();
-                    _pairingServiceVersion.Next();
+                    _pairingOperationVersion.Next();
                     _pairing = null; _inviter = false;
                     ShowPairing();
                 }
@@ -80,7 +80,7 @@ internal sealed partial class MainWindow
             Closed += (_, _) =>
             {
                 _pairingTimer.Stop();
-                _pairingPollVersion.Next(); _pairingServiceVersion.Next();
+                _pairingPollVersion.Next(); _pairingOperationVersion.Next();
                 _app.Settings.Changed -= OnPairingSettingsChanged;
             };
         }
@@ -111,7 +111,7 @@ internal sealed partial class MainWindow
                 try
                 {
                     var response = await report.ProfileRequestAsync("POST", "/v1/profile/pairings", "{}"u8.ToArray());
-                    TryApplyPairingServiceResult(version, () =>
+                    TryApplyPairingOperation(version, () =>
                     {
                         _pairing = response is { Status: 201 } created ? ReportProfileJson.Pairing(created.Body, report.ProfileNow) : null;
                         _inviter = true; ShowPairing();
@@ -128,7 +128,7 @@ internal sealed partial class MainWindow
             try
             {
                 var response = await report.ProfileRequestAsync("POST", "/v1/profile/pairings/claim", ReportJson.Object(("code", ReportJson.Of(normalized))).ToCompactBytes());
-                TryApplyPairingServiceResult(version, () =>
+                TryApplyPairingOperation(version, () =>
                 {
                     _pairing = response is { Status: 202 } claimed ? ReportProfileJson.Pairing(claimed.Body, report.ProfileNow) : null;
                     code.Text = ""; _inviter = false; ShowPairing();
@@ -145,7 +145,7 @@ internal sealed partial class MainWindow
             try
             {
                 var response = await report.ProfileRequestAsync("POST", "/v1/profile/pairings/" + pairing.Id + "/approve", "{}"u8.ToArray());
-                if (response is { Status: 200 } approved && TryApplyPairingServiceResult(version, () =>
+                if (response is { Status: 200 } approved && TryApplyPairingOperation(version, () =>
                     {
                         if (_pairing?.Id != pairing.Id) return;
                         _pairing = ReportProfileJson.Pairing(approved.Body, report.ProfileNow); ShowPairing();
@@ -162,7 +162,7 @@ internal sealed partial class MainWindow
             {
                 var result = await report.ProfileRequestAsync("DELETE", "/v1/profile/pairings/" + pairing.Id);
                 if (result?.Status == 204)
-                    TryApplyPairingServiceResult(version, () =>
+                    TryApplyPairingOperation(version, () =>
                     {
                         if (_pairing?.Id != pairing.Id) return;
                         _pairing = null; _inviter = false; _profileStatus.Text = "";
@@ -230,13 +230,13 @@ internal sealed partial class MainWindow
     {
         _pairingMutations++;
         _pairingPollVersion.Next();
-        var version = _pairingServiceVersion.Current;
+        var version = _pairingOperationVersion.Next();
         UpdatePairingTimer();
         return version;
     }
 
-    private bool TryApplyPairingServiceResult(long version, Action apply) =>
-        _pairingServiceVersion.TryApply(version, () =>
+    private bool TryApplyPairingOperation(long version, Action apply) =>
+        _pairingOperationVersion.TryApply(version, () =>
         {
             _pairingPollVersion.Next();
             apply();
@@ -256,7 +256,7 @@ internal sealed partial class MainWindow
             var response = await _app.Report.ProfileRequestAsync("DELETE", "/v1/profile/identity");
             if (response?.Status is >= 200 and < 300)
             {
-                if (TryApplyPairingServiceResult(version, () =>
+                if (TryApplyPairingOperation(version, () =>
                     {
                         _pairing = null; _inviter = false; ShowPairing();
                     }))
@@ -264,7 +264,7 @@ internal sealed partial class MainWindow
             }
             else
             {
-                _pairingServiceVersion.TryApply(version, () => _profileStatus.Text = L("profile.failed"));
+                _pairingOperationVersion.TryApply(version, () => _profileStatus.Text = L("profile.failed"));
             }
         }
         finally { EndPairingMutation(); }

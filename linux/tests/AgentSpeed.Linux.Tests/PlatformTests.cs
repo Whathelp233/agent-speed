@@ -330,7 +330,7 @@ public sealed class PlatformTests
     public async Task LatePairingPollCannotReplacePairingCreatedWhileItWasWaiting()
     {
         var polls = new PairingRequestVersion();
-        var service = new PairingRequestVersion();
+        var operations = new PairingRequestVersion();
         var pairing = "pairing A";
         var pollVersion = polls.Current;
         var response = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -342,9 +342,9 @@ public sealed class PlatformTests
         }
 
         var poll = CompletePoll();
-        var createVersion = service.Current;
+        var createVersion = operations.Next();
         polls.Next();
-        Assert.True(service.TryApply(createVersion, () =>
+        Assert.True(operations.TryApply(createVersion, () =>
         {
             polls.Next();
             pairing = "pairing B";
@@ -354,6 +354,42 @@ public sealed class PlatformTests
         await poll;
 
         Assert.Equal("pairing B", pairing);
+    }
+
+    [Fact]
+    public async Task LastPairingMutationWinsWhenFakeResponsesReturnOutOfOrder()
+    {
+        var operations = new PairingRequestVersion();
+        var pairing = "pairing A";
+        var requestsStarted = 0;
+        var createResponse = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var claimResponse = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        long StartFakeRequest()
+        {
+            requestsStarted++;
+            return operations.Next();
+        }
+
+        async Task ApplyResponse(long version, Task<string> response)
+        {
+            var result = await response;
+            operations.TryApply(version, () => pairing = result);
+        }
+
+        var createVersion = StartFakeRequest();
+        var create = ApplyResponse(createVersion, createResponse.Task);
+        var claimVersion = StartFakeRequest();
+        var claim = ApplyResponse(claimVersion, claimResponse.Task);
+        Assert.Equal(2, requestsStarted);
+
+        claimResponse.SetResult("pairing B");
+        await claim;
+        createResponse.SetResult("pairing A");
+        await create;
+
+        Assert.Equal("pairing B", pairing);
+        Assert.Equal(2, requestsStarted);
     }
 
     [Fact]
