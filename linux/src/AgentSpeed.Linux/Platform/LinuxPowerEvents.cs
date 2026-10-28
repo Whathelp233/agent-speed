@@ -20,7 +20,7 @@ internal sealed class LinuxPowerEvents(LinuxApp app) : IDisposable
             var proxy = _connection.CreateProxy<ILoginManager>("org.freedesktop.login1", new ObjectPath("/org/freedesktop/login1"));
             _watch = await proxy.WatchPrepareForSleepAsync(sleeping => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                if (sleeping) { app.Traffic.Monitor.Flush(); app.Settings.Flush(); }
+                if (sleeping) LinuxOrbPositionLifecycle.Suspend(app.FlushOrbPositions, app.Traffic.Monitor.Flush, app.Settings.Flush);
                 else { app.Cost.Prices.OnResume(); app.Cost.Rates.OnResume(); app.SyncOrbs(); }
             }));
         }

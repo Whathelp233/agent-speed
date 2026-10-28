@@ -77,6 +77,39 @@ public sealed class PlatformTests
         Assert.Equal(expected.ToCenter(primary.Work, primary.Scale, orb.RadiusPx(primary.Scale)), result.Locations[orb.Id].Center);
     }
 
+    [Fact]
+    public void ClosingRetainedOrbFlushesItsPositionBeforeClosing()
+    {
+        var actions = new List<string>();
+
+        LinuxOrbPositionLifecycle.Close(retainPosition: true,
+            () => actions.Add("flush"), () => actions.Add("close"));
+
+        Assert.Equal(["flush", "close"], actions);
+    }
+
+    [Fact]
+    public void RemovingOrbClosesWithoutTryingToPersistItsDeletedPosition()
+    {
+        var actions = new List<string>();
+
+        LinuxOrbPositionLifecycle.Close(retainPosition: false,
+            () => actions.Add("flush"), () => actions.Add("close"));
+
+        Assert.Equal(["close"], actions);
+    }
+
+    [Fact]
+    public void SuspendingFlushesOrbPositionsBeforeTrafficAndSettings()
+    {
+        var actions = new List<string>();
+
+        LinuxOrbPositionLifecycle.Suspend(
+            () => actions.Add("positions"), () => actions.Add("traffic"), () => actions.Add("settings"));
+
+        Assert.Equal(["positions", "traffic", "settings"], actions);
+    }
+
     [Theory]
     [InlineData("'prefer-dark'", "'Yaru'", true)]
     [InlineData("'prefer-light'", "'Yaru-dark'", false)]

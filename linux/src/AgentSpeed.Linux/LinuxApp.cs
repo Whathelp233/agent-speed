@@ -225,7 +225,10 @@ internal sealed class LinuxApp : Application
 
                 foreach (var (id, window) in _orbs.ToArray())
                     if (!settings.ShowOrbs || document.Find(id) is not { Visible: true })
-                    { _orbs.Remove(id); window.Close(); }
+                    {
+                        _orbs.Remove(id);
+                        LinuxOrbPositionLifecycle.Close(document.Find(id) is not null, window.FlushPosition, window.Close);
+                    }
                 if (settings.ShowOrbs)
                     foreach (var definition in document.Orbs.Where(o => o.Visible))
                     {
@@ -317,9 +320,13 @@ internal sealed class LinuxApp : Application
     {
         if (Quitting) return;
         Quitting = true;
-        foreach (var orb in _orbs.Values.ToArray()) orb.FlushPosition();
+        FlushOrbPositions();
         Settings.Flush();
         Report.PrepareToQuit(() => _desktop.Shutdown(Environment.ExitCode));
+    }
+    internal void FlushOrbPositions()
+    {
+        foreach (var orb in _orbs.Values.ToArray()) orb.FlushPosition();
     }
     public void Restart() { _restart = true; Quit(); }
     private void DisposeServices()
