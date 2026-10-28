@@ -16,16 +16,20 @@ internal sealed class ReportKeyStore(string directory)
     }
     private void Write(string path, byte[] value)
     {
-        LinuxPaths.EnsurePrivate(Directory);
         var temp = Path.Combine(Directory, "." + Guid.NewGuid().ToString("N"));
         try
         {
+            LinuxPaths.EnsurePrivate(Directory);
             using (var file = new FileStream(temp, new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write,
                 UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite }))
             { file.Write(value); file.Flush(true); }
             File.Move(temp, path, overwrite: true);
         }
-        finally { File.Delete(temp); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new CryptographicException("The key could not be stored.", ex);
+        }
+        finally { Delete(temp); }
     }
     public SoftwareReportSigner CreateKey(string deviceId, bool pending = false)
     {
@@ -45,12 +49,12 @@ internal sealed class ReportKeyStore(string directory)
     public bool PromotePending(string deviceId)
     {
         try { File.Move(FilePath(deviceId, "pending.key"), FilePath(deviceId, "key"), true); return true; }
-        catch (IOException) { return false; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
     }
-    public void DeletePending(string deviceId) => File.Delete(FilePath(deviceId, "pending.key"));
+    public void DeletePending(string deviceId) => Delete(FilePath(deviceId, "pending.key"));
     public void DeleteAll(string deviceId)
     {
-        foreach (var suffix in new[] { "key", "pending.key", "apikey" }) File.Delete(FilePath(deviceId, suffix));
+        foreach (var suffix in new[] { "key", "pending.key", "apikey" }) Delete(FilePath(deviceId, suffix));
     }
     public bool HasFiles(string deviceId) => new[] { "key", "pending.key", "apikey" }.Any(s => File.Exists(FilePath(deviceId, s)));
     public void SaveApiKey(string apiKey, string deviceId)
@@ -64,7 +68,13 @@ internal sealed class ReportKeyStore(string directory)
         try { return File.ReadAllText(FilePath(deviceId, "apikey")); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
     }
-    public void DeleteApiKey(string deviceId) => File.Delete(FilePath(deviceId, "apikey"));
+    public void DeleteApiKey(string deviceId) => Delete(FilePath(deviceId, "apikey"));
+
+    private static void Delete(string path)
+    {
+        try { File.Delete(path); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
 }
 
 internal static class ReportComputerName

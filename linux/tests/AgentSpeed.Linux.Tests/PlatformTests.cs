@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using System.Security.Cryptography;
 using AgentSpeed.Linux.Rendering;
 using AgentSpeed.Linux.UI;
 using AgentSpeed.Linux.Platform;
@@ -128,6 +129,65 @@ public sealed class PlatformTests
             foreach (var file in Directory.EnumerateFiles(directory)) Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(file));
             Assert.Throws<ArgumentException>(() => keys.CreateKey("../../outside"));
             keys.DeleteAll(id); Assert.False(keys.HasFiles(id));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+    [Fact]
+    public void KeyStoreWriteFailuresUseTheHandledStorageExceptionContract()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "agent-speed-secret-blocker-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        const string id = "123e4567-e89b-42d3-a456-426614174000";
+        try
+        {
+            var blockedDirectory = Path.Combine(root, "report");
+            File.WriteAllText(blockedDirectory, "not a directory");
+            var keys = new ReportKeyStore(blockedDirectory);
+
+            var createError = Assert.Throws<CryptographicException>(() => keys.CreateKey(id));
+            Assert.IsAssignableFrom<IOException>(createError.InnerException);
+            var apiKeyError = Assert.Throws<CryptographicException>(() => keys.SaveApiKey("fake-api-key-123", id));
+            Assert.IsAssignableFrom<IOException>(apiKeyError.InnerException);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+    [Fact]
+    public void FailedAtomicReplacementPreservesTheExistingDeviceKey()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "agent-speed-secret-replacement-" + Guid.NewGuid());
+        const string id = "123e4567-e89b-42d3-a456-426614174000";
+        try
+        {
+            var keys = new ReportKeyStore(directory);
+            using var original = keys.CreateKey(id);
+            var blockedPendingPath = Path.Combine(directory, id + ".pending.key");
+            Directory.CreateDirectory(blockedPendingPath);
+
+            Assert.Throws<CryptographicException>(() => keys.CreateKey(id, pending: true));
+            using var loaded = keys.LoadKey(id);
+            Assert.Equal(original.PublicKey.Fingerprint, loaded!.PublicKey.Fingerprint);
+            Assert.DoesNotContain(Directory.EnumerateFiles(directory),
+                path => Path.GetFileName(path).StartsWith(".", StringComparison.Ordinal));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+    [Fact]
+    public void FailedPendingPromotionKeepsThePendingKeyAndDeleteIsBestEffort()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "agent-speed-secret-promotion-" + Guid.NewGuid());
+        const string id = "123e4567-e89b-42d3-a456-426614174000";
+        try
+        {
+            var keys = new ReportKeyStore(directory);
+            using var pending = keys.CreateKey(id, pending: true);
+            var blockedTarget = Path.Combine(directory, id + ".key");
+            Directory.CreateDirectory(blockedTarget);
+
+            Assert.False(keys.PromotePending(id));
+            Assert.True(File.Exists(Path.Combine(directory, id + ".pending.key")));
+            keys.DeleteAll(id);
+            Assert.True(Directory.Exists(blockedTarget));
+            Assert.False(File.Exists(Path.Combine(directory, id + ".pending.key")));
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
