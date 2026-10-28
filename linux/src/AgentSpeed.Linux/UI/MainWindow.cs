@@ -664,9 +664,8 @@ internal sealed partial class MainWindow : Window
                     v => _app.Settings.Update(s => s.WithSourceEnabled(kind, v))),
                 Input(T("Folder"), value, v =>
                 {
-                    if (v.Length > 0 && !Path.IsPathFullyQualified(v)) { _notice.Text = T("Choose an absolute folder path."); return; }
                     _app.Settings.Update(s => WithRoot(s, kind, v.Length == 0 ? null : v));
-                }))));
+                }, v => v.Length > 0 && !Path.IsPathFullyQualified(v) ? T("Choose an absolute folder path.") : null))));
         }
         return panel;
     }

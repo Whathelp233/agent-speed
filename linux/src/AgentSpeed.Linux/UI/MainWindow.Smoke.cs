@@ -332,6 +332,31 @@ internal sealed partial class MainWindow
         await Task.Delay(60);
     }
 
+    private void AssertSourceFolderValidation()
+    {
+        var original = _app.Settings.Current.CodexRoot;
+        var panel = (StackPanel)Sources();
+        var card = (Border)panel.Children[1];
+        var body = (StackPanel)card.Child!;
+        var input = (TextBox)((StackPanel)body.Children[1]).Children[1];
+        void Submit(string text)
+        {
+            input.Text = text;
+            input.RaiseEvent(new FocusChangedEventArgs(InputElement.LostFocusEvent));
+        }
+        Submit("relative/records");
+        if (!DataValidationErrors.GetHasErrors(input) || _app.Settings.Current.CodexRoot != original)
+            throw new InvalidOperationException("A relative source folder was not rejected inline.");
+        Submit(original ?? "");
+        if (DataValidationErrors.GetHasErrors(input))
+            throw new InvalidOperationException("Restoring a source folder retained its validation error.");
+        var absolute = Path.Combine(LinuxPaths.Cache, "synthetic-records");
+        Submit(absolute);
+        if (_app.Settings.Current.CodexRoot != absolute || DataValidationErrors.GetHasErrors(input))
+            throw new InvalidOperationException("A valid absolute source folder was not accepted.");
+        Submit(original ?? "");
+    }
+
     private async Task AssertHistoryExportAsync()
     {
         var originalSource = _historySource.SelectedIndex;
@@ -579,6 +604,7 @@ internal sealed partial class MainWindow
         if (DataValidationErrors.GetHasErrors(numeric) || commits != 1)
             throw new InvalidOperationException("Restoring the saved numeric value retained a stale validation error.");
         await AssertRedlineSettingsAsync();
+        AssertSourceFolderValidation();
 
         await AssertLanguageKeepsHistoryFilterAsync();
         _historySource.SelectedIndex = 0;
