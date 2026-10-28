@@ -18,7 +18,17 @@ internal sealed partial class MainWindow
     private bool _inviter;
     private bool _profileBusy;
     private readonly DispatcherTimer _pairingTimer = new() { Interval = TimeSpan.FromSeconds(3) };
+    private readonly PairingRequestVersion _pairingPollVersion = new();
+    private readonly PairingRequestVersion _pairingServiceVersion = new();
+    private int _pairingMutations;
+    private PairingServiceContext? _pairingServiceContext;
     private bool _reportSubscribed;
+    private sealed record PairingServiceContext(string? Service, string? Identity, string? DeviceId, string? Api)
+    {
+        public static PairingServiceContext From(ReportController report) =>
+            new(report.SelectedService?.Text, report.Identity?.Id, report.Identity?.DeviceId, report.Discovery?.Api.Text);
+    }
+
     private Control Reporting()
     {
         (_avatar.Source as IDisposable)?.Dispose();
@@ -28,8 +38,18 @@ internal sealed partial class MainWindow
         if (!_reportSubscribed)
         {
             _reportSubscribed = true;
+            _pairingServiceContext = PairingServiceContext.From(report);
             report.Changed += (_, _) =>
             {
+                var context = PairingServiceContext.From(report);
+                if (_pairingServiceContext != context)
+                {
+                    _pairingServiceContext = context;
+                    _pairingPollVersion.Next();
+                    _pairingServiceVersion.Next();
+                    _pairing = null; _inviter = false;
+                    ShowPairing();
+                }
                 _reportStatus.Text = report.Status.Text(_app.Loc, DateTimeOffset.UtcNow);
                 UpdatePairingTimer();
             };
@@ -38,20 +58,29 @@ internal sealed partial class MainWindow
             _pairingTimer.Tick += async (_, _) =>
             {
                 if (_profileBusy) return;
-                if (!CanPollPairing()) { UpdatePairingTimer(); return; }
+                if (!CanPollPairing() || _pairingMutations > 0) { UpdatePairingTimer(); return; }
                 var current = _pairing!;
+                var version = _pairingPollVersion.Current;
                 _profileBusy = true;
                 try
                 {
                     var response = await report.ProfileRequestAsync("GET", "/v1/profile/pairings/" + current.Id);
                     if (response?.Status == 200 && ReportProfileJson.Pairing(response.Body, report.ProfileNow) is { } next)
-                    { _pairing = next with { Code = _inviter ? current.Code : null }; ShowPairing(); }
+                    {
+                        _pairingPollVersion.TryApply(version, () =>
+                        {
+                            if (_pairing?.Id != current.Id) return;
+                            _pairing = next with { Code = _inviter ? current.Code : null };
+                            ShowPairing();
+                        });
+                    }
                 }
                 finally { _profileBusy = false; UpdatePairingTimer(); }
             };
             Closed += (_, _) =>
             {
                 _pairingTimer.Stop();
+                _pairingPollVersion.Next(); _pairingServiceVersion.Next();
                 _app.Settings.Changed -= OnPairingSettingsChanged;
             };
         }
@@ -78,34 +107,71 @@ internal sealed partial class MainWindow
             Button(Tr("Create shared identity", "创建多设备身份"), () => _ = ProfileChange("POST", "/v1/profile/identity", "{}"u8.ToArray())), _profileDevices,
             Button(Tr("Create pairing code", "生成配对码"), async () =>
             {
-                var response = await report.ProfileRequestAsync("POST", "/v1/profile/pairings", "{}"u8.ToArray());
-                _pairing = response?.Status == 201 ? ReportProfileJson.Pairing(response.Body, report.ProfileNow) : null;
-                _inviter = true; ShowPairing();
+                var version = BeginPairingMutation();
+                try
+                {
+                    var response = await report.ProfileRequestAsync("POST", "/v1/profile/pairings", "{}"u8.ToArray());
+                    TryApplyPairingServiceResult(version, () =>
+                    {
+                        _pairing = response is { Status: 201 } created ? ReportProfileJson.Pairing(created.Body, report.ProfileNow) : null;
+                        _inviter = true; ShowPairing();
+                    });
+                }
+                finally { EndPairingMutation(); }
             }));
         var code = new TextBox { PlaceholderText = Tr("Pairing code from the original device", "原设备生成的一次性配对码") };
         panel.Children.Add(code);
         panel.Children.Add(Button(Tr("Join with code", "输入配对码加入"), async () =>
         {
             if (ReportProfileJson.NormalizeCode(code.Text) is not { } normalized) return;
-            var response = await report.ProfileRequestAsync("POST", "/v1/profile/pairings/claim", ReportJson.Object(("code", ReportJson.Of(normalized))).ToCompactBytes());
-            _pairing = response?.Status == 202 ? ReportProfileJson.Pairing(response.Body, report.ProfileNow) : null;
-            code.Text = ""; _inviter = false; ShowPairing();
+            var version = BeginPairingMutation();
+            try
+            {
+                var response = await report.ProfileRequestAsync("POST", "/v1/profile/pairings/claim", ReportJson.Object(("code", ReportJson.Of(normalized))).ToCompactBytes());
+                TryApplyPairingServiceResult(version, () =>
+                {
+                    _pairing = response is { Status: 202 } claimed ? ReportProfileJson.Pairing(claimed.Body, report.ProfileNow) : null;
+                    code.Text = ""; _inviter = false; ShowPairing();
+                });
+            }
+            finally { EndPairingMutation(); }
         }));
         panel.Children.Add(Button(Tr("Approve requesting device…", "批准请求配对的设备…"), async () =>
         {
             if (!_inviter || _pairing is not { State: "pending", Claimant: { } claimant } pairing) return;
             if (!await Confirm($"{Tr("Approve pairing?", "批准此设备的配对请求？")}\n{claimant.Platform} · {claimant.DeviceId}")) return;
-            var response = await report.ProfileRequestAsync("POST", "/v1/profile/pairings/" + pairing.Id + "/approve", "{}"u8.ToArray());
-            if (response?.Status == 200) { _pairing = ReportProfileJson.Pairing(response.Body, report.ProfileNow); ShowPairing(); await RefreshProfile(); }
+            if (_pairing?.Id != pairing.Id) return;
+            var version = BeginPairingMutation();
+            try
+            {
+                var response = await report.ProfileRequestAsync("POST", "/v1/profile/pairings/" + pairing.Id + "/approve", "{}"u8.ToArray());
+                if (response is { Status: 200 } approved && TryApplyPairingServiceResult(version, () =>
+                    {
+                        if (_pairing?.Id != pairing.Id) return;
+                        _pairing = ReportProfileJson.Pairing(approved.Body, report.ProfileNow); ShowPairing();
+                    }))
+                    await RefreshProfile();
+            }
+            finally { EndPairingMutation(); }
         }));
         panel.Children.Add(Button(Tr("Cancel pairing", "取消配对"), async () =>
         {
             if (_pairing is not { } pairing) return;
-            var result = await report.ProfileRequestAsync("DELETE", "/v1/profile/pairings/" + pairing.Id);
-            if (result?.Status == 204) { _pairing = null; _pairingTimer.Stop(); _profileStatus.Text = ""; }
+            var version = BeginPairingMutation();
+            try
+            {
+                var result = await report.ProfileRequestAsync("DELETE", "/v1/profile/pairings/" + pairing.Id);
+                if (result?.Status == 204)
+                    TryApplyPairingServiceResult(version, () =>
+                    {
+                        if (_pairing?.Id != pairing.Id) return;
+                        _pairing = null; _inviter = false; _profileStatus.Text = "";
+                    });
+            }
+            finally { EndPairingMutation(); }
         }));
         panel.Children.Add(Button(Tr("Unlink this device…", "解绑此设备…"), async () =>
-        { if (await Confirm(Tr("Unlink this device? Its recorded history is retained.", "解绑此设备？已入账的历史记录仍会保留。"))) await ProfileChange("DELETE", "/v1/profile/identity"); }));
+        { if (await Confirm(Tr("Unlink this device? Its recorded history is retained.", "解绑此设备？已入账的历史记录仍会保留。"))) await UnlinkIdentity(); }));
         return panel;
     }
     private void RenderConsent()
@@ -151,8 +217,57 @@ internal sealed partial class MainWindow
 
     private void UpdatePairingTimer()
     {
-        if (CanPollPairing()) _pairingTimer.Start();
-        else _pairingTimer.Stop();
+        if (!CanPollPairing())
+        {
+            _pairingTimer.Stop();
+            _pairingPollVersion.Next();
+        }
+        else if (_pairingMutations > 0) _pairingTimer.Stop();
+        else _pairingTimer.Start();
+    }
+
+    private long BeginPairingMutation()
+    {
+        _pairingMutations++;
+        _pairingPollVersion.Next();
+        var version = _pairingServiceVersion.Current;
+        UpdatePairingTimer();
+        return version;
+    }
+
+    private bool TryApplyPairingServiceResult(long version, Action apply) =>
+        _pairingServiceVersion.TryApply(version, () =>
+        {
+            _pairingPollVersion.Next();
+            apply();
+        });
+
+    private void EndPairingMutation()
+    {
+        _pairingMutations--;
+        UpdatePairingTimer();
+    }
+
+    private async Task UnlinkIdentity()
+    {
+        var version = BeginPairingMutation();
+        try
+        {
+            var response = await _app.Report.ProfileRequestAsync("DELETE", "/v1/profile/identity");
+            if (response?.Status is >= 200 and < 300)
+            {
+                if (TryApplyPairingServiceResult(version, () =>
+                    {
+                        _pairing = null; _inviter = false; ShowPairing();
+                    }))
+                    await RefreshProfile();
+            }
+            else
+            {
+                _pairingServiceVersion.TryApply(version, () => _profileStatus.Text = L("profile.failed"));
+            }
+        }
+        finally { EndPairingMutation(); }
     }
     private async Task RefreshProfile()
     {

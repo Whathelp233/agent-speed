@@ -325,6 +325,37 @@ public sealed class PlatformTests
         Assert.False(MainWindow.ShouldPollPairing(true, true, true, true, waiting with { State = "approved" }, now));
         Assert.False(MainWindow.ShouldPollPairing(true, true, true, true, waiting with { ExpiresAt = now }, now));
     }
+
+    [Fact]
+    public async Task LatePairingPollCannotReplacePairingCreatedWhileItWasWaiting()
+    {
+        var polls = new PairingRequestVersion();
+        var service = new PairingRequestVersion();
+        var pairing = "pairing A";
+        var pollVersion = polls.Current;
+        var response = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        async Task CompletePoll()
+        {
+            var result = await response.Task;
+            polls.TryApply(pollVersion, () => pairing = result);
+        }
+
+        var poll = CompletePoll();
+        var createVersion = service.Current;
+        polls.Next();
+        Assert.True(service.TryApply(createVersion, () =>
+        {
+            polls.Next();
+            pairing = "pairing B";
+        }));
+
+        response.SetResult("pairing A");
+        await poll;
+
+        Assert.Equal("pairing B", pairing);
+    }
+
     [Fact]
     public void RelativeXdgPathIsIgnored()
     {
