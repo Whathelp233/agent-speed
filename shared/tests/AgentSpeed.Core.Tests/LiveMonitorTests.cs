@@ -16,6 +16,21 @@ public sealed class LiveMonitorTests : IDisposable
     public void Dispose() => _temp.Dispose();
 
     [Fact]
+    public void OpenCodeDefaultUsesHomeFallbackForUnsetOrRelativeXdgDataHome()
+    {
+        var home = _temp.Combine("home");
+        Assert.Equal(Path.Combine(home, ".local", "share", "opencode"), LiveMonitor.OpenCodeDataRoot(null, home));
+        Assert.Equal(Path.Combine(home, ".local", "share", "opencode"), LiveMonitor.OpenCodeDataRoot("relative/data", home));
+    }
+
+    [Fact]
+    public void OpenCodeDefaultUsesAbsoluteXdgDataHome()
+    {
+        var dataHome = _temp.Combine("xdg-data");
+        Assert.Equal(Path.Combine(dataHome, "opencode"), LiveMonitor.OpenCodeDataRoot(dataHome, _temp.Combine("home")));
+    }
+
+    [Fact]
     public async Task SeedsPublishesRunningAndRaisesLiveEvents()
     {
         Directory.CreateDirectory(CodexRoot);

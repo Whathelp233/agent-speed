@@ -98,14 +98,13 @@ public sealed class LiveMonitor : IDisposable
     /// <summary><c>%XDG_DATA_HOME%\opencode</c>, else <c>~/.local/share/opencode</c> (the folder that contains opencode.db).</summary>
     public static string DefaultOpenCodeRoot
     {
-        get
-        {
-            var data = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
-            return string.IsNullOrEmpty(data)
-                ? Path.Combine(UserHome, ".local", "share", "opencode")
-                : Path.Combine(data, "opencode");
-        }
+        get => OpenCodeDataRoot(Environment.GetEnvironmentVariable("XDG_DATA_HOME"), UserHome);
     }
+
+    internal static string OpenCodeDataRoot(string? dataHome, string home) =>
+        !string.IsNullOrWhiteSpace(dataHome) && Path.IsPathFullyQualified(dataHome)
+            ? Path.Combine(dataHome, "opencode")
+            : Path.Combine(home, ".local", "share", "opencode");
 
     /// <summary><c>&lt;home&gt;/.gemini/tmp</c>, where home is <c>%GEMINI_CLI_HOME%</c>, else the user profile.</summary>
     public static string DefaultGeminiRoot => Path.Combine(GeminiHome, ".gemini", "tmp");
