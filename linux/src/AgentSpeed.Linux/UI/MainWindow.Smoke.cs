@@ -136,6 +136,19 @@ internal sealed partial class MainWindow
         }
     }
 
+    private async Task AssertHeroTimerStopsWhenHiddenAsync()
+    {
+        if (!_hero.AnimationTimerEnabled)
+            throw new InvalidOperationException("The visible dashboard hero animation timer is not running.");
+        Hide();
+        if (_hero.AnimationTimerEnabled)
+            throw new InvalidOperationException("The hidden window kept the dashboard hero animation timer running.");
+        Show();
+        await Task.Delay(80);
+        if (!_hero.AnimationTimerEnabled)
+            throw new InvalidOperationException("The dashboard hero animation timer did not resume when the window became visible.");
+    }
+
     private void PublishSourceGroupingData(bool produced)
     {
         var snapshot = _app.Speed.Snapshot;
@@ -465,6 +478,7 @@ internal sealed partial class MainWindow
         Width = 1120; Height = 820;
         SelectPage("dashboard");
         await Task.Delay(160);
+        await AssertHeroTimerStopsWhenHiddenAsync();
         await PublishShowcaseAsync();
         await Task.Delay(2200); // Let the original vehicle transition settle; no stale cross-fade in the public screenshot.
         RefreshLive();

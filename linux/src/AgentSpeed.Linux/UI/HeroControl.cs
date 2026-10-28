@@ -21,6 +21,7 @@ internal sealed class HeroControl : Control
     private readonly RigPose _pose = new();
     private readonly object _gate = new();
     private readonly Dictionary<VehiclePart, SKPath> _paths = [];
+    private bool _attached;
     private readonly SKFont _font = new() { Edging = SKFontEdging.Antialias };
     private readonly SKPaint _paint = new() { IsAntialias = true, StrokeCap = SKStrokeCap.Round, StrokeJoin = SKStrokeJoin.Round };
     private readonly Avalonia.Threading.DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1d / 30) };
@@ -48,9 +49,20 @@ internal sealed class HeroControl : Control
             if (part.Circle is { } circle) path.AddCircle((float)circle.X, (float)circle.Y, (float)circle.Radius);
             _paths[part] = path;
         }
-        _timer.Tick += (_, _) => { if (IsEffectivelyVisible) InvalidateVisual(); };
-        AttachedToVisualTree += (_, _) => _timer.Start(); DetachedFromVisualTree += (_, _) => _timer.Stop();
+        _timer.Tick += (_, _) => InvalidateVisual();
+        IsEffectivelyVisibleChanged += (_, _) => UpdateTimer();
+        AttachedToVisualTree += (_, _) => { _attached = true; UpdateTimer(); };
+        DetachedFromVisualTree += (_, _) => { _attached = false; UpdateTimer(); };
     }
+    internal bool AnimationTimerEnabled => _timer.IsEnabled;
+
+    private void UpdateTimer()
+    {
+        var shouldRun = _attached && IsEffectivelyVisible;
+        if (shouldRun && !_timer.IsEnabled) _timer.Start();
+        else if (!shouldRun && _timer.IsEnabled) _timer.Stop();
+    }
+
     public override void Render(DrawingContext context)
     {
         base.Render(context);
