@@ -44,10 +44,9 @@ public sealed class OrbLifecycleTests
         var operations = new List<string>();
         var syncPasses = 0;
 
-        Assert.True(gate.TryEnter(repositionExisting: false));
-        syncPasses++;
-        try
+        var entered = gate.Run(repositionExisting: false, () =>
         {
+            syncPasses++;
             LinuxOrbPositionLifecycle.Close(
                 retainPosition: true,
                 flushPosition: () =>
@@ -55,17 +54,13 @@ public sealed class OrbLifecycleTests
                     Assert.DoesNotContain("orb", windows.Keys);
                     operations.Add("flush");
                     // Settings.Update raises Changed synchronously; its SyncOrbs call must not re-enter.
-                    if (gate.TryEnter(repositionExisting: false))
-                    {
-                        try { syncPasses++; windows["orb"] = 2; }
-                        finally { gate.Exit(); }
-                    }
+                    gate.Run(repositionExisting: false, () => { syncPasses++; windows["orb"] = 2; });
                 },
                 close: () => operations.Add("close"),
                 removeFromLiveWindows: () => { windows.Remove("orb"); operations.Add("remove"); });
-        }
-        finally { gate.Exit(); }
+        });
 
+        Assert.True(entered);
         Assert.Equal(["remove", "flush", "close"], operations);
         Assert.Equal(1, syncPasses);
         Assert.Empty(windows);

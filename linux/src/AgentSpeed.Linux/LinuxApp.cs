@@ -200,8 +200,7 @@ internal sealed class LinuxApp : Application
     }
     public void SyncOrbs(bool repositionExisting = false)
     {
-        if (!_orbSyncGate.TryEnter(repositionExisting)) return;
-        try
+        _orbSyncGate.Run(repositionExisting, () =>
         {
             var repeat = false;
             do
@@ -248,8 +247,7 @@ internal sealed class LinuxApp : Application
                     }
                 Monitor.SetSubsets(document.Orbs.Select(o => o.TrackedSources).OfType<SourceSet>().Distinct().ToArray());
             } while (repeat || _orbSyncGate.HasRepositionRequest);
-        }
-        finally { _orbSyncGate.Exit(); }
+        });
     }
     private void ApplyAppearance()
     {

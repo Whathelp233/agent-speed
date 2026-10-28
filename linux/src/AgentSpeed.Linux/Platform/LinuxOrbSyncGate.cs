@@ -19,6 +19,14 @@ internal sealed class LinuxOrbSyncGate
         return true;
     }
 
+    internal bool Run(bool repositionExisting, Action synchronize)
+    {
+        ArgumentNullException.ThrowIfNull(synchronize);
+        if (!TryEnter(repositionExisting)) return false;
+        try { synchronize(); return true; }
+        finally { Exit(); }
+    }
+
     internal bool TakeRepositionRequest()
     {
         var requested = _repositionRequested;
