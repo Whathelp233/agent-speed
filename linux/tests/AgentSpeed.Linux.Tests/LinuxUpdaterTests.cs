@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using AgentSpeed.Linux.Services;
 using AgentSpeed.Presentation.Updates;
 
@@ -8,6 +9,7 @@ namespace AgentSpeed.Linux.Tests;
 
 public sealed class LinuxUpdaterTests
 {
+    private const long MaxPackageBytes = 300L * 1024 * 1024;
     private static readonly byte[] Package = [1, 2, 3, 4];
     private static readonly string Manifest = $"{Convert.ToHexString(SHA256.HashData(Package)).ToLowerInvariant()}  AgentSpeed-Linux-x64.deb\n";
     private static readonly byte[] Feed = Encoding.UTF8.GetBytes($$"""
@@ -168,16 +170,54 @@ public sealed class LinuxUpdaterTests
         var handler = new RoutingHandler(RespondToReleaseRequests);
         using var updater = new LinuxUpdater(UpdateSource.FromOverride("http://updates.test/feed", out _),
             () => enabled, () => "1.0.0", () => null, _ => { }, _ => { }, folder.Path, handler);
+        var changes = 0;
+        updater.Changed += () => changes++;
         await updater.CheckAsync();
         Assert.Null(await updater.DownloadAsync());
+        Assert.Null(updater.Status);
+        Assert.Equal(0, changes);
         Assert.Equal(0, handler.FeedRequestCount);
         enabled = true;
         await updater.CheckAsync();
         Assert.NotNull(updater.Available);
+        Assert.Equal(1, changes);
         enabled = false;
+        var statusBeforeDisabledDownload = updater.Status;
         Assert.Null(await updater.DownloadAsync());
+        Assert.Equal(statusBeforeDisabledDownload, updater.Status);
+        Assert.Equal(1, changes);
         Assert.False(Directory.Exists(folder.Path));
         Assert.Equal(1, handler.FeedRequestCount);
+    }
+
+    [Theory]
+    [InlineData(false, true, 4L)]
+    [InlineData(true, false, 4L)]
+    [InlineData(true, true, 0L)]
+    [InlineData(true, true, MaxPackageBytes + 1)]
+    public async Task UnusableLinuxAssetsReportFailureWithoutOfferingOrDownloading(bool package, bool checksums, long size)
+    {
+        using var folder = new TemporaryFolder();
+        var feed = FeedWithAssets(package, checksums, size);
+        var handler = new RoutingHandler((request, token) => request.RequestUri?.AbsolutePath == "/feed"
+            ? Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(feed) })
+            : RespondToReleaseRequests(request, token));
+        using var updater = CreateUpdater(folder.Path, handler);
+        var changes = 0;
+        updater.Changed += () => changes++;
+
+        await updater.CheckAsync();
+
+        Assert.Null(updater.Available);
+        Assert.Equal("Download or verification failed", updater.Status);
+        Assert.Equal(1, changes);
+        Assert.Equal(1, handler.RequestCount);
+
+        Assert.Null(await updater.DownloadAsync());
+        Assert.Equal("Download or verification failed", updater.Status);
+        Assert.Equal(2, changes);
+        Assert.Equal(1, handler.RequestCount);
+        Assert.False(Directory.Exists(folder.Path));
     }
 
     private static LinuxUpdater CreateUpdater(
@@ -209,14 +249,32 @@ public sealed class LinuxUpdaterTests
         return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = content });
     }
 
+    private static byte[] FeedWithAssets(bool package, bool checksums, long packageSize)
+    {
+        var assets = new List<object>();
+        if (package)
+        {
+            assets.Add(new { name = "AgentSpeed-Linux-x64.deb", browser_download_url = "http://updates.test/package", size = packageSize });
+        }
+        if (checksums)
+        {
+            assets.Add(new { name = "SHA256SUMS.txt", browser_download_url = "http://updates.test/checksums", size = Encoding.UTF8.GetByteCount(Manifest) });
+        }
+
+        return JsonSerializer.SerializeToUtf8Bytes(new { tag_name = "v2.0.0", name = "2.0.0", assets });
+    }
+
     private sealed class RoutingHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> route) : HttpMessageHandler
     {
         private int _feedRequestCount;
+        private int _requestCount;
 
         public int FeedRequestCount => Volatile.Read(ref _feedRequestCount);
+        public int RequestCount => Volatile.Read(ref _requestCount);
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            Interlocked.Increment(ref _requestCount);
             if (request.RequestUri?.AbsolutePath == "/feed")
             {
                 Interlocked.Increment(ref _feedRequestCount);

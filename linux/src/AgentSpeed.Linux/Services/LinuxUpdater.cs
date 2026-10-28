@@ -77,10 +77,28 @@ internal sealed class LinuxUpdater : IDisposable
             using var data = new MemoryStream();
             await Fetch(_source.FeedUrl, data, ReleaseFeed.MaxFeedBytes, request.Token);
             var release = ReleaseFeed.Parse(data.ToArray());
-            Available = SemanticVersion.TryParse(_currentVersion(), out var current)
+            var candidate = SemanticVersion.TryParse(_currentVersion(), out var current)
                 && UpdateSchedule.Evaluate(current, release, _skippedVersion(), manual) == UpdateOffer.Available
-                && release?.FindAsset("AgentSpeed-Linux-x64.deb") is not null ? release : null;
-            Status = Available?.DisplayVersion ?? "Up to date";
+                    ? release
+                    : null;
+            var asset = candidate?.FindAsset("AgentSpeed-Linux-x64.deb");
+            var sums = candidate?.FindAsset("SHA256SUMS.txt");
+            if (candidate is null)
+            {
+                Available = null;
+                Status = "Up to date";
+            }
+            else if (asset is null || sums is null || asset.Size is <= 0 or > 300L * 1024 * 1024)
+            {
+                Available = null;
+                Status = "Download or verification failed";
+            }
+            else
+            {
+                Available = candidate;
+                Status = candidate.DisplayVersion;
+            }
+
             _recordSuccessfulCheck(DateTimeOffset.UtcNow);
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or OperationCanceledException or UpdateException)
@@ -104,13 +122,12 @@ internal sealed class LinuxUpdater : IDisposable
             || release.FindAsset("AgentSpeed-Linux-x64.deb") is not { } asset
             || release.FindAsset("SHA256SUMS.txt") is not { } sums)
         {
-            return null;
+            return FailDownload();
         }
 
         if (asset.Size is <= 0 or > 300L * 1024 * 1024)
         {
-            Status = "Download or verification failed";
-            return null;
+            return FailDownload();
         }
 
         var request = TryBeginRequest(TimeSpan.FromMinutes(10));
@@ -322,5 +339,12 @@ internal sealed class LinuxUpdater : IDisposable
         }
 
         Changed?.Invoke();
+    }
+
+    private string? FailDownload()
+    {
+        Status = "Download or verification failed";
+        Changed?.Invoke();
+        return null;
     }
 }
