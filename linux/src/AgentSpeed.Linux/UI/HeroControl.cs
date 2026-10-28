@@ -21,7 +21,9 @@ internal sealed class HeroControl : Control
     private readonly RigPose _pose = new();
     private readonly object _gate = new();
     private readonly Dictionary<VehiclePart, SKPath> _paths = [];
+    private TopLevel? _visibilityRoot;
     private bool _attached;
+    private bool _rootVisible;
     private readonly SKFont _font = new() { Edging = SKFontEdging.Antialias };
     private readonly SKPaint _paint = new() { IsAntialias = true, StrokeCap = SKStrokeCap.Round, StrokeJoin = SKStrokeJoin.Round };
     private readonly Avalonia.Threading.DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1d / 30) };
@@ -50,17 +52,49 @@ internal sealed class HeroControl : Control
             _paths[part] = path;
         }
         _timer.Tick += (_, _) => InvalidateVisual();
-        IsEffectivelyVisibleChanged += (_, _) => UpdateTimer();
-        AttachedToVisualTree += (_, _) => { _attached = true; UpdateTimer(); };
-        DetachedFromVisualTree += (_, _) => { _attached = false; UpdateTimer(); };
+        AttachedToVisualTree += (_, _) =>
+        {
+            _attached = true;
+            AttachVisibilityRoot();
+            UpdateTimer();
+        };
+        DetachedFromVisualTree += (_, _) =>
+        {
+            _attached = false;
+            DetachVisibilityRoot();
+            UpdateTimer();
+        };
     }
     internal bool AnimationTimerEnabled => _timer.IsEnabled;
 
     private void UpdateTimer()
     {
-        var shouldRun = _attached && IsEffectivelyVisible;
+        var shouldRun = _attached && IsVisible && _rootVisible;
         if (shouldRun && !_timer.IsEnabled) _timer.Start();
         else if (!shouldRun && _timer.IsEnabled) _timer.Stop();
+    }
+
+    private void AttachVisibilityRoot()
+    {
+        DetachVisibilityRoot();
+        if (VisualRoot is not TopLevel root) return;
+        _visibilityRoot = root;
+        _rootVisible = root.IsVisible;
+        root.PropertyChanged += OnRootPropertyChanged;
+    }
+
+    private void DetachVisibilityRoot()
+    {
+        if (_visibilityRoot is { } root) root.PropertyChanged -= OnRootPropertyChanged;
+        _visibilityRoot = null;
+        _rootVisible = false;
+    }
+
+    private void OnRootPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property != IsVisibleProperty) return;
+        _rootVisible = _visibilityRoot?.IsVisible == true;
+        UpdateTimer();
     }
 
     public override void Render(DrawingContext context)

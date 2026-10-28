@@ -140,7 +140,16 @@ internal sealed partial class MainWindow
     {
         if (!_hero.AnimationTimerEnabled)
             throw new InvalidOperationException("The visible dashboard hero animation timer is not running.");
+        SelectPage("history");
+        await Task.Delay(80);
+        if (_hero.AnimationTimerEnabled)
+            throw new InvalidOperationException("Leaving the dashboard kept its detached hero animation timer running.");
+        SelectPage("dashboard");
+        await Task.Delay(80);
+        if (!_hero.AnimationTimerEnabled)
+            throw new InvalidOperationException("Returning to the dashboard did not restart its hero animation timer.");
         Hide();
+        await Task.Delay(80);
         if (_hero.AnimationTimerEnabled)
             throw new InvalidOperationException("The hidden window kept the dashboard hero animation timer running.");
         Show();
