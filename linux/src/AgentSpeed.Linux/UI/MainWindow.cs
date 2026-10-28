@@ -570,9 +570,9 @@ internal sealed partial class MainWindow : Window
         void Save()
         {
             var next = field.Text?.Trim() ?? "";
-            if (next == saved) return;
             if (validate?.Invoke(next) is { } error) { DataValidationErrors.SetError(field, new ArgumentException(error)); return; }
             DataValidationErrors.ClearErrors(field);
+            if (next == saved) return;
             saved = next;
             commit(next);
         }

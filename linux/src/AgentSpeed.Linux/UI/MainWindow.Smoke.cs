@@ -468,6 +468,10 @@ internal sealed partial class MainWindow
         numeric.RaiseEvent(new FocusChangedEventArgs(InputElement.LostFocusEvent));
         if (!DataValidationErrors.GetHasErrors(numeric) || commits != 1)
             throw new InvalidOperationException("An invalid numeric setting was accepted.");
+        numeric.Text = "1";
+        numeric.RaiseEvent(new FocusChangedEventArgs(InputElement.LostFocusEvent));
+        if (DataValidationErrors.GetHasErrors(numeric) || commits != 1)
+            throw new InvalidOperationException("Restoring the saved numeric value retained a stale validation error.");
 
         await AssertLanguageKeepsHistoryFilterAsync();
         _historySource.SelectedIndex = 0;
