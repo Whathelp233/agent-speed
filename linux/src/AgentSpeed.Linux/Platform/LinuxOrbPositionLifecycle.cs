@@ -3,8 +3,9 @@ namespace AgentSpeed.Linux.Platform;
 /// <summary>Orders position persistence before lifecycle operations that may suspend or close orb windows.</summary>
 internal static class LinuxOrbPositionLifecycle
 {
-    internal static void Close(bool retainPosition, Action flushPosition, Action close)
+    internal static void Close(bool retainPosition, Action flushPosition, Action close, Action? removeFromLiveWindows = null)
     {
+        removeFromLiveWindows?.Invoke();
         if (retainPosition) flushPosition();
         close();
     }

@@ -33,8 +33,7 @@ internal sealed class LinuxApp : Application
     private readonly Avalonia.Threading.DispatcherTimer _maintenance = new() { Interval = TimeSpan.FromSeconds(30) };
     private DateTimeOffset _nextUpdateCheck;
     private readonly Dictionary<string, OrbWindow> _orbs = [];
-    private bool _syncingOrbs;
-    private bool _repositionOrbsRequested;
+    private readonly LinuxOrbSyncGate _orbSyncGate = new();
     public readonly Stopwatch Clock = Stopwatch.StartNew();
     public SettingsService Settings { get; private set; } = null!;
     public Localizer Loc { get; private set; } = null!;
@@ -195,29 +194,21 @@ internal sealed class LinuxApp : Application
     }
     public void SyncOrbs(bool repositionExisting = false)
     {
-        if (_syncingOrbs)
-        {
-            _repositionOrbsRequested |= repositionExisting;
-            return;
-        }
-
-        _syncingOrbs = true;
-        _repositionOrbsRequested = repositionExisting;
+        if (!_orbSyncGate.TryEnter(repositionExisting)) return;
         try
         {
             var repeat = false;
             do
             {
                 repeat = false;
-                var reposition = _repositionOrbsRequested;
-                _repositionOrbsRequested = false;
+                var reposition = _orbSyncGate.TakeRepositionRequest();
                 var settings = Settings.Current;
                 var document = settings.Orbs;
                 var screens = Main?.Screens.All ?? Array.Empty<Screen>();
                 var layout = LinuxOrbLayout.Resolve(document, LinuxOrbDisplays());
                 if (layout.Document != document)
                 {
-                    _repositionOrbsRequested |= reposition;
+                    _orbSyncGate.RequestReposition(reposition);
                     Settings.Update(s => s with { Orbs = layout.Document });
                     repeat = true;
                     continue;
@@ -226,8 +217,8 @@ internal sealed class LinuxApp : Application
                 foreach (var (id, window) in _orbs.ToArray())
                     if (!settings.ShowOrbs || document.Find(id) is not { Visible: true })
                     {
-                        _orbs.Remove(id);
-                        LinuxOrbPositionLifecycle.Close(document.Find(id) is not null, window.FlushPosition, window.Close);
+                        LinuxOrbPositionLifecycle.Close(document.Find(id) is not null, window.FlushPosition, window.Close,
+                            () => _orbs.Remove(id));
                     }
                 if (settings.ShowOrbs)
                     foreach (var definition in document.Orbs.Where(o => o.Visible))
@@ -250,9 +241,9 @@ internal sealed class LinuxApp : Application
                         }
                     }
                 Monitor.SetSubsets(document.Orbs.Select(o => o.TrackedSources).OfType<SourceSet>().Distinct().ToArray());
-            } while (repeat || _repositionOrbsRequested);
+            } while (repeat || _orbSyncGate.HasRepositionRequest);
         }
-        finally { _syncingOrbs = false; }
+        finally { _orbSyncGate.Exit(); }
     }
     private void ApplyAppearance()
     {
